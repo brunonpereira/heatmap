@@ -466,17 +466,21 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Active filter ribbon */
+  /* Active filter ribbon — vertical column on the left, below Leaflet zoom controls */
   .ribbon {
     position: absolute;
-    top: 20px; left: 20px;
+    top: 90px; left: 12px;
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 6px;
-    flex-wrap: wrap;
-    max-width: calc(100% - 320px);
+    max-width: 180px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
     z-index: 1000;
     pointer-events: auto;
   }
+  .ribbon:empty { display: none; }
   .ribbon-chip {
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(12px);
@@ -911,7 +915,7 @@
     .app { grid-template-columns: 300px 1fr; }
     .controls { max-width: 280px; }
     .top-card { max-width: 300px; }
-    .ribbon { max-width: calc(100% - 300px); }
+    .ribbon { max-width: 180px; }
   }
 
   /* ---------- Responsive: Tablet & Mobile ---------- */
@@ -986,13 +990,15 @@
       padding: 12px 14px;
     }
 
-    /* Top cidades: narrower */
+    /* Top cidades: centered at bottom, matching Camadas format */
     .top-card {
       width: calc(100vw - 24px);
-      max-width: 300px;
-      left: calc(12px + env(safe-area-inset-left, 0px));
+      max-width: 320px;
+      left: 50% !important;
       right: auto !important;
-      bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important;
+      transform: translateX(-50%);
+      bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+      top: auto !important;
       padding: 12px 14px;
       min-width: 0;
     }
@@ -1099,7 +1105,7 @@
     .sidebar { height: 75vh; height: 75dvh; }
     .restore-btn { padding: 7px 10px; font-size: 11px; }
     .restore-bar { gap: 4px; }
-    .ribbon { top: 52px; left: 8px; right: 8px; font-size: 11px; padding: 6px 8px; }
+    .ribbon { top: calc(110px + env(safe-area-inset-top, 0px)); left: 8px; right: auto; max-width: 160px; max-height: calc(100vh - 180px); font-size: 11px; padding: 0; flex-direction: column; align-items: flex-start; }
     .ribbon-chip { padding: 3px 8px; font-size: 11px; }
     .mobile-open-filters { width: 48px; height: 48px; font-size: 18px; }
   }
@@ -1130,7 +1136,7 @@
     .sidebar::before { display: none; }
     .sidebar .brand { padding-top: 0; }
     .legend { font-size: 10px; padding: 8px 10px; min-width: 120px; }
-    .ribbon { top: 42px; max-height: 40px; overflow-x: auto; flex-wrap: nowrap; }
+    .ribbon { top: 42px; max-width: 140px; max-height: 40vh; }
   }
 
   @media (pointer: coarse) {
@@ -1654,7 +1660,7 @@
 
   const OSRM_BASE = 'https://router.project-osrm.org/table/v1/driving/';
   const OSRM_CACHE_KEY = 'osrm_cache_v1';
-  const OSRM_MAX_COORDS = 80; // stay well under 100 limit
+  const OSRM_MAX_COORDS = 50; // smaller batches complete faster and rarely hit the 30s timeout
   const OSRM_COORD_PRECISION = 3; // ~100m rounding → better cache hits
 
   let osrmCache = null;
@@ -1685,11 +1691,15 @@
 
   async function osrmTableBatch(coords) {
     // coords: array of {lat,lng}. Returns NxN duration matrix in seconds or null on failure.
+    // OSRM table endpoint requires ≥2 coordinates. For a 1-coord "batch" (self-pair only),
+    // return a trivial 1×1 zero matrix so callers don't blow up the API.
+    if (!coords || coords.length === 0) return null;
+    if (coords.length === 1) return { durations: [[0]], distances: [[0]] };
     const str = coords.map(c => `${c.lng.toFixed(5)},${c.lat.toFixed(5)}`).join(';');
     const url = `${OSRM_BASE}${str}?annotations=duration,distance`;
     try {
       const ctl = new AbortController();
-      const tmo = setTimeout(() => ctl.abort(), 15000);
+      const tmo = setTimeout(() => ctl.abort(), 45000);
       const r = await fetch(url, { signal: ctl.signal });
       clearTimeout(tmo);
       if (!r.ok) return null;
