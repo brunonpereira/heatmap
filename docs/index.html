@@ -1778,12 +1778,21 @@
       chunks.push(needCoords.slice(i, i + OSRM_MAX_COORDS));
     }
 
+    // Total number of batches (i<=j pairs of chunks) — used for a linear batch-based progress signal.
+    const totalBatches = chunks.length * (chunks.length + 1) / 2;
+    let batchesDone = 0;
+
     // We need pair(o,d) for o in origins, d in destinations. If both are in the SAME chunk we cover them.
     // Otherwise we need a cross-chunk batch containing both. Simplest: for each pair of chunks (ci, cj),
     // do a single /table with ci ∪ cj (deduped, capped at OSRM_MAX_COORDS).
     const failedKeys = new Set();
     for (let i = 0; i < chunks.length; i++) {
       for (let j = i; j < chunks.length; j++) {
+        // Announce start of this batch (pre-fetch tick) so the UI ticks at least once per batch BEFORE the slow network wait.
+        if (onProgress) onProgress(batchesDone, totalBatches, { stage: 'fetching', batchIndex: batchesDone + 1, totalBatches });
+        // Yield to paint so the percentage updates on-screen before awaiting the slow fetch.
+        await new Promise(r => requestAnimationFrame(() => r()));
+
         const merged = [];
         const seen = new Set();
         const push = c => { if (!seen.has(c.key)) { seen.add(c.key); merged.push(c); } };
@@ -1802,6 +1811,8 @@
               failedKeys.add(pk);
             }
           }
+          batchesDone++;
+          if (onProgress) onProgress(batchesDone, totalBatches, { stage: 'done-batch', batchIndex: batchesDone, totalBatches });
           continue;
         }
         // Store every pair this batch can answer
@@ -1817,10 +1828,8 @@
             result.set(pk, rec);
           }
         }
-        // Update progress based on how many missingPairs now have data
-        let newDone = 0;
-        for (const [,,pk] of missingPairs) if (result.has(pk)) newDone++;
-        if (onProgress) onProgress(newDone, totalPairs);
+        batchesDone++;
+        if (onProgress) onProgress(batchesDone, totalBatches, { stage: 'done-batch', batchIndex: batchesDone, totalBatches });
       }
     }
     saveOsrmCache();
@@ -2350,14 +2359,33 @@
 
     // Try OSRM first; fall back to analytical model on any error.
     let res = null;
+    let batchStartTime = 0;
+    let tickTimer = null;
+    function stopTicker() { if (tickTimer) { clearInterval(tickTimer); tickTimer = null; } }
     try {
-      res = await computeBestOfficeOsrm(people, scenario, (done, total) => {
+      res = await computeBestOfficeOsrm(people, scenario, (done, total, meta) => {
+        stopTicker();
         const pct = total ? Math.round(done/total*100) : 0;
+        const batchInfo = meta && meta.totalBatches
+          ? ` · lote ${meta.batchIndex}/${meta.totalBatches}`
+          : '';
         btn.textContent = `OSM ${pct}%`;
-        container.innerHTML = `<div style=\"font-size:11px;color:var(--text-dim);padding:8px 0\">Consultando OpenStreetMap\u2026 <b>${done.toLocaleString('pt-BR')}</b> de <b>${total.toLocaleString('pt-BR')}</b> rotas (${pct}%)</div>`;
+        container.innerHTML = `<div style="font-size:11px;color:var(--text-dim);padding:8px 0">Consultando OpenStreetMap… <b>${pct}%</b>${batchInfo} <span id="osrm-tick" style="color:var(--text-faint)"></span></div>`;
+        // While a batch is in-flight, run a 1s ticker so the user sees the UI is alive.
+        if (meta && meta.stage === 'fetching') {
+          batchStartTime = performance.now();
+          const tickEl = document.getElementById('osrm-tick');
+          tickTimer = setInterval(() => {
+            if (!tickEl || !tickEl.isConnected) { stopTicker(); return; }
+            const secs = Math.floor((performance.now() - batchStartTime) / 1000);
+            tickEl.textContent = ` · aguardando resposta ${secs}s`;
+          }, 500);
+        }
       });
+      stopTicker();
       if (res) usedOsm = true;
     } catch(e) {
+      stopTicker();
       console.warn('OSRM failed, falling back', e);
     }
     if (!res) {
