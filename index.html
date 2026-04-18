@@ -3,7 +3,33 @@
 <head>
 <meta charset="UTF-8">
 <title>Heatmap — Distribuição de Pessoas no Brasil</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5.0, user-scalable=yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f6f7f9">
+<meta name="format-detection" content="telephone=no">
+<template id="__bundler_thumbnail" data-bg-color="#f6f7f9">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#f6f7f9"/>
+    <g transform="translate(600 400)">
+      <circle r="220" fill="#8bc34a" opacity="0.35"/>
+      <circle r="160" fill="#ffeb3b" opacity="0.5"/>
+      <circle r="100" fill="#ff9800" opacity="0.7"/>
+      <circle r="50"  fill="#f44336"/>
+    </g>
+    <g transform="translate(820 260)">
+      <circle r="80" fill="#8bc34a" opacity="0.4"/>
+      <circle r="50" fill="#ffeb3b" opacity="0.6"/>
+      <circle r="24" fill="#ff9800"/>
+    </g>
+    <g transform="translate(340 560)">
+      <circle r="70" fill="#8bc34a" opacity="0.4"/>
+      <circle r="42" fill="#ffeb3b" opacity="0.6"/>
+      <circle r="20" fill="#ff9800"/>
+    </g>
+  </svg>
+</template>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
@@ -30,20 +56,27 @@
   html, body {
     height: 100%;
     height: 100dvh;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
     background: var(--bg);
     color: var(--text);
     overflow: hidden;
     font-size: clamp(13px, 0.72vw + 11px, 15px);
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
     overscroll-behavior: none;
   }
+  .app { height: 100vh; height: 100dvh; }
+  #map { touch-action: none; }
+  .leaflet-container { -webkit-tap-highlight-color: transparent; }
+  input, button, select, textarea { font-family: inherit; -webkit-appearance: none; }
+  input[type="text"], input[type="search"] { font-size: 16px; /* prevents iOS zoom-on-focus */ }
 
   .app {
     display: grid;
     grid-template-columns: 340px 1fr;
     height: 100vh;
+    height: 100dvh;
     transition: grid-template-columns 0.25s ease;
   }
   .app.sidebar-hidden {
@@ -400,7 +433,7 @@
   /* Legend */
   .legend {
     position: absolute;
-    bottom: 24px; left: 20px;
+    bottom: 44px; right: 20px;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -632,6 +665,230 @@
     cursor: pointer;
   }
 
+  /* Office finder panel */
+  .office-panel {
+    position: absolute;
+    left: 20px;
+    top: 20px;
+    z-index: 1000;
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px 16px;
+    width: 320px;
+    max-width: calc(100vw - 40px);
+    box-shadow: 0 4px 16px rgba(20,30,50,0.08);
+    pointer-events: auto;
+  }
+  .office-panel h3 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .office-panel .subtitle {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-bottom: 12px;
+  }
+  .office-run {
+    width: 100%;
+    padding: 9px 12px;
+    background: #2d7d46;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    margin-bottom: 10px;
+  }
+  .office-run:hover { background: #256238; }
+  .office-run:disabled { background: #aab3bd; cursor: not-allowed; }
+  .office-result {
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  .office-result .addr {
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+  .office-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .office-metric {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+  }
+  .office-metric .lbl {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+  }
+  .office-metric .val {
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    margin-top: 2px;
+  }
+  .office-dist {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .office-dist .bar-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 32px;
+    gap: 6px;
+    align-items: center;
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .office-dist .bar-bg {
+    height: 6px;
+    background: #e5e7eb;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .office-dist .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+  }
+  .office-candidates {
+    margin-top: 10px;
+    font-size: 11px;
+  }
+  .office-candidates .cand-row {
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    border: 1px solid var(--border);
+  }
+  .office-candidates .cand-row:hover { background: rgba(0,0,0,0.03); }
+  .office-candidates .cand-row.active {
+    background: rgba(45,125,70,0.08);
+    border-color: rgba(45,125,70,0.35);
+  }
+  .office-candidates .cand-head {
+    display: grid;
+    grid-template-columns: 20px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+  }
+  .office-candidates .rank {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .office-candidates .cand-name {
+    font-weight: 600;
+    color: var(--text);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .office-candidates .cand-score {
+    font-size: 10px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    background: var(--surface-2);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .office-candidates .cand-breakdown {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px 10px;
+    padding-left: 28px;
+  }
+  .office-candidates .cand-breakdown .b {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .office-candidates .cand-breakdown .b b {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .office-candidates .cand-breakdown .b30 b { color: #2d7d46; }
+  .office-candidates .cand-breakdown .b45 b { color: #8bc34a; }
+  .office-candidates .cand-breakdown .b60 b { color: #ffb300; }
+
+  .traffic-select {
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    font-size: 12px;
+    font-family: inherit;
+    margin-bottom: 10px;
+  }
+
+  /* Office marker - distinctive pin */
+  .office-pin {
+    background: transparent;
+    border: none;
+  }
+  .office-pin-inner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50% 50% 50% 0;
+    background: #2d7d46;
+    transform: rotate(-45deg);
+    border: 3px solid #fff;
+    box-shadow: 0 4px 12px rgba(20,30,50,0.35);
+    position: relative;
+  }
+  .office-pin-inner::after {
+    content: '★';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: rotate(45deg);
+    color: #fff;
+    font-size: 16px;
+  }
+  .office-isochrone {
+    fill: #2d7d46;
+    fill-opacity: 0.08;
+    stroke: #2d7d46;
+    stroke-opacity: 0.4;
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+  }
+
+  /* Traffic panel on mobile */
+  @media (max-width: 900px) {
+    .office-panel {
+      left: calc(12px + env(safe-area-inset-left, 0px));
+      top: calc(60px + env(safe-area-inset-top, 0px));
+      width: calc(100vw - 24px);
+      max-width: 360px;
+    }
+  }
+
   /* ---------- Responsive: Tablet (medium) ---------- */
   @media (max-width: 1200px) and (min-width: 901px) {
     .app { grid-template-columns: 300px 1fr; }
@@ -658,7 +915,9 @@
       top: auto;
       width: 100%;
       max-height: 80vh;
+      max-height: 80dvh;
       height: 70vh;
+      height: 70dvh;
       z-index: 1100;
       border-right: none;
       border-top: 1px solid var(--border);
@@ -666,6 +925,7 @@
       box-shadow: 0 -8px 32px rgba(20,30,50,0.15);
       transform: translateY(0);
       transition: transform 0.3s ease;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
     }
     .app.sidebar-hidden .sidebar {
       transform: translateY(calc(100% - 0px));
@@ -693,19 +953,19 @@
       height: 32px;
       font-size: 18px;
     }
-    /* Down chevron on mobile */
+    /* Down chevron on mobile (replaces left-arrow visual) */
     .sidebar-hide { font-size: 0; }
     .sidebar-hide::after { content: '\25BC'; font-size: 12px; }
 
     /* Map takes full height, sidebar floats over */
-    .map-wrap { grid-row: 1; grid-column: 1; height: 100vh; }
+    .map-wrap { grid-row: 1; grid-column: 1; height: 100vh; height: 100dvh; }
 
     /* Controls panel: compact, pinned top-right under restore bar */
     .controls {
       width: calc(100vw - 24px);
       max-width: 320px;
-      top: 12px;
-      right: 12px;
+      top: calc(12px + env(safe-area-inset-top, 0px));
+      right: calc(12px + env(safe-area-inset-right, 0px));
       padding: 12px 14px;
     }
 
@@ -713,16 +973,16 @@
     .top-card {
       width: calc(100vw - 24px);
       max-width: 300px;
-      left: 12px;
+      left: calc(12px + env(safe-area-inset-left, 0px));
       right: auto !important;
-      bottom: 90px !important;
+      bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important;
       padding: 12px 14px;
       min-width: 0;
     }
 
     /* Restore bar: centered at top, wrap if needed */
     .restore-bar {
-      top: 10px;
+      top: calc(10px + env(safe-area-inset-top, 0px));
       flex-wrap: wrap;
       justify-content: center;
       max-width: calc(100vw - 20px);
@@ -742,18 +1002,19 @@
 
     /* Legend: smaller, bottom-right to avoid overlap */
     .legend {
-      bottom: 14px;
-      left: 12px;
+      bottom: calc(34px + env(safe-area-inset-bottom, 0px));
+      right: calc(12px + env(safe-area-inset-right, 0px));
+      left: auto;
       padding: 10px 12px;
       min-width: 150px;
     }
 
-    /* Floating button to open sidebar when hidden */
+    /* Mobile FAB respects iOS home-indicator */
     .mobile-open-filters {
       display: flex;
       position: fixed;
-      bottom: 20px;
-      right: 16px;
+      bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+      right: calc(16px + env(safe-area-inset-right, 0px));
       width: 52px;
       height: 52px;
       border-radius: 50%;
@@ -826,17 +1087,17 @@
     .mobile-open-filters { width: 48px; height: 48px; font-size: 18px; }
   }
 
-  /* Tiny phones (iPhone SE, etc) */
+  /* ---------- Tiny phones (iPhone SE, etc) ---------- */
   @media (max-width: 380px) {
     .restore-bar { flex-direction: column; align-items: stretch; gap: 4px; }
     .restore-btn { width: 100%; text-align: center; }
-    .controls { top: 148px; }
-    .ribbon { top: 148px; }
+    .controls { top: calc(148px + env(safe-area-inset-top, 0px)); }
+    .ribbon { top: calc(148px + env(safe-area-inset-top, 0px)); }
     .legend { padding: 8px 10px; min-width: 110px; }
     .legend-title { font-size: 9px; }
   }
 
-  /* Short screens (landscape phones) */
+  /* ---------- Short screens (landscape phones) ---------- */
   @media (max-height: 500px) and (orientation: landscape) {
     .sidebar {
       left: 0; top: 0; bottom: 0; right: auto;
@@ -927,6 +1188,19 @@
 
     <div class="ribbon" id="ribbon"></div>
 
+    <div class="office-panel hidden" id="panel-office">
+      <button class="panel-close" data-hide="panel-office" data-restore="restore-office" title="Esconder">×</button>
+      <h3>Melhor escritório</h3>
+      <div class="subtitle">Minimiza o tempo médio de deslocamento na hora do rush considerando a concentração atual</div>
+      <select class="traffic-select" id="traffic-scenario">
+        <option value="rush" selected>Tráfego de hora do rush</option>
+        <option value="offpeak">Tráfego fora do pico</option>
+        <option value="free">Sem tráfego (referência)</option>
+      </select>
+      <button class="office-run" id="run-office">Calcular localização ótima</button>
+      <div id="office-result"></div>
+    </div>
+
     <div class="controls overlay has-pointer hidden" id="panel-controls">
       <button class="panel-close" data-hide="panel-controls" data-restore="restore-controls" title="Esconder">×</button>
       <div class="ctrl-section">
@@ -970,6 +1244,7 @@
       <button class="restore-btn visible" id="restore-sidebar">☰ Filtros</button>
       <button class="restore-btn visible" id="restore-controls">▤ Camadas</button>
       <button class="restore-btn visible" id="restore-top">★ Top cidades</button>
+      <button class="restore-btn visible" id="restore-office">🏢 Melhor escritório</button>
     </div>
 
     <div class="legend overlay has-pointer">
@@ -1362,6 +1637,588 @@
   wireSlider('slider-blur', 'val-blur', 'blur');
   wireSlider('slider-intensity', 'val-intensity', 'intensity', v => v / 100);
 
+  // ==================================================
+  // OSRM — real road distances via OpenStreetMap
+  // Uses the public demo server; batches to /table (max 100 coords per req),
+  // caches by rounded coord pair in localStorage. Falls back to haversine×1.3.
+  // ==================================================
+
+  const OSRM_BASE = 'https://router.project-osrm.org/table/v1/driving/';
+  const OSRM_CACHE_KEY = 'osrm_cache_v1';
+  const OSRM_MAX_COORDS = 80; // stay well under 100 limit
+  const OSRM_COORD_PRECISION = 3; // ~100m rounding → better cache hits
+
+  let osrmCache = null;
+  function loadOsrmCache() {
+    if (osrmCache) return osrmCache;
+    try {
+      osrmCache = JSON.parse(localStorage.getItem(OSRM_CACHE_KEY) || '{}');
+    } catch(e) { osrmCache = {}; }
+    return osrmCache;
+  }
+  function saveOsrmCache() {
+    try {
+      // Keep cache bounded — trim to 20k entries if exceeded
+      const entries = Object.entries(osrmCache);
+      if (entries.length > 20000) {
+        osrmCache = Object.fromEntries(entries.slice(-15000));
+      }
+      localStorage.setItem(OSRM_CACHE_KEY, JSON.stringify(osrmCache));
+    } catch(e) { /* quota full — silently drop */ }
+  }
+  function coordKey(pt) {
+    return `${pt.lat.toFixed(OSRM_COORD_PRECISION)},${pt.lng.toFixed(OSRM_COORD_PRECISION)}`;
+  }
+  function pairKey(a, b) {
+    const ka = coordKey(a), kb = coordKey(b);
+    return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+  }
+
+  async function osrmTableBatch(coords) {
+    // coords: array of {lat,lng}. Returns NxN duration matrix in seconds or null on failure.
+    const str = coords.map(c => `${c.lng.toFixed(5)},${c.lat.toFixed(5)}`).join(';');
+    const url = `${OSRM_BASE}${str}?annotations=duration,distance`;
+    try {
+      const ctl = new AbortController();
+      const tmo = setTimeout(() => ctl.abort(), 15000);
+      const r = await fetch(url, { signal: ctl.signal });
+      clearTimeout(tmo);
+      if (!r.ok) return null;
+      const j = await r.json();
+      if (j.code !== 'Ok') return null;
+      return { durations: j.durations, distances: j.distances };
+    } catch(e) { return null; }
+  }
+
+  // Fetch durations for ALL pairs (a, b) in `pairs` array.
+  // Uses cache first, then batches remaining coords via OSRM.
+  // Returns Map(pairKey -> { seconds, km }).
+  async function fetchOsrmMatrix(origins, destinations, onProgress) {
+    loadOsrmCache();
+    // Unique coord set
+    const coordByKey = new Map();
+    const addCoord = pt => {
+      const k = coordKey(pt);
+      if (!coordByKey.has(k)) coordByKey.set(k, { lat: pt.lat, lng: pt.lng, key: k });
+    };
+    origins.forEach(addCoord);
+    destinations.forEach(addCoord);
+    const allCoords = [...coordByKey.values()];
+
+    // Build pair list, check cache
+    const result = new Map();
+    const missing = new Set(); // keys that appear in any missing pair
+    const missingPairs = [];
+    for (const o of origins) {
+      for (const d of destinations) {
+        const pk = pairKey(o, d);
+        if (osrmCache[pk]) {
+          result.set(pk, osrmCache[pk]);
+        } else {
+          missingPairs.push([o, d, pk]);
+          missing.add(coordKey(o));
+          missing.add(coordKey(d));
+        }
+      }
+    }
+
+    if (missingPairs.length === 0) return result;
+
+    // Coords we still need to query
+    const needCoords = allCoords.filter(c => missing.has(c.key));
+
+    // Batch them: each batch is OSRM_MAX_COORDS coords → NxN pairs per request.
+    // For a full N×M problem we'd need multiple batches; split by origins.
+    const totalPairs = missingPairs.length;
+    let done = 0;
+    if (onProgress) onProgress(0, totalPairs);
+
+    // Strategy: process in windows of up to OSRM_MAX_COORDS coords at a time.
+    // Split needCoords into chunks; for each chunk, call /table once → fill all pair combos within it.
+    const chunks = [];
+    for (let i = 0; i < needCoords.length; i += OSRM_MAX_COORDS) {
+      chunks.push(needCoords.slice(i, i + OSRM_MAX_COORDS));
+    }
+
+    // We need pair(o,d) for o in origins, d in destinations. If both are in the SAME chunk we cover them.
+    // Otherwise we need a cross-chunk batch containing both. Simplest: for each pair of chunks (ci, cj),
+    // do a single /table with ci ∪ cj (deduped, capped at OSRM_MAX_COORDS).
+    const failedKeys = new Set();
+    for (let i = 0; i < chunks.length; i++) {
+      for (let j = i; j < chunks.length; j++) {
+        const merged = [];
+        const seen = new Set();
+        const push = c => { if (!seen.has(c.key)) { seen.add(c.key); merged.push(c); } };
+        chunks[i].forEach(push);
+        chunks[j].forEach(push);
+        if (merged.length > OSRM_MAX_COORDS) merged.length = OSRM_MAX_COORDS;
+
+        const matrix = await osrmTableBatch(merged);
+        // Gentle rate-limit on the public demo server
+        await new Promise(r => setTimeout(r, 120));
+        if (!matrix) {
+          // Mark every missing pair among `merged` as failed
+          for (const a of merged) {
+            for (const b of merged) {
+              const pk = pairKey({lat:a.lat,lng:a.lng}, {lat:b.lat,lng:b.lng});
+              failedKeys.add(pk);
+            }
+          }
+          continue;
+        }
+        // Store every pair this batch can answer
+        for (let a = 0; a < merged.length; a++) {
+          for (let b = 0; b < merged.length; b++) {
+            const pa = merged[a], pb = merged[b];
+            const pk = pairKey({lat:pa.lat,lng:pa.lng}, {lat:pb.lat,lng:pb.lng});
+            const sec = matrix.durations[a][b];
+            const mts = matrix.distances ? matrix.distances[a][b] : null;
+            if (sec == null) continue;
+            const rec = { seconds: sec, km: mts != null ? mts/1000 : null };
+            osrmCache[pk] = rec;
+            result.set(pk, rec);
+          }
+        }
+        // Update progress based on how many missingPairs now have data
+        let newDone = 0;
+        for (const [,,pk] of missingPairs) if (result.has(pk)) newDone++;
+        if (onProgress) onProgress(newDone, totalPairs);
+      }
+    }
+    saveOsrmCache();
+    return result;
+  }
+
+  // ==================================================
+  // Office Finder — traffic-aware optimal location
+  // ==================================================
+
+  // Metro-region rush-hour friction: higher = slower in rush
+  // (roughly modeled on TomTom/Waze congestion indices for BR metros)
+  const METRO_RUSH = [
+    { name: 'SP',  lat: -23.55, lng: -46.63, radiusKm: 60, rushFactor: 1.75, offpeakFactor: 1.30, cityKmh: 32 },
+    { name: 'RJ',  lat: -22.91, lng: -43.20, radiusKm: 45, rushFactor: 1.70, offpeakFactor: 1.28, cityKmh: 32 },
+    { name: 'BH',  lat: -19.92, lng: -43.94, radiusKm: 35, rushFactor: 1.55, offpeakFactor: 1.22, cityKmh: 34 },
+    { name: 'POA', lat: -30.03, lng: -51.23, radiusKm: 35, rushFactor: 1.50, offpeakFactor: 1.20, cityKmh: 34 },
+    { name: 'CWB', lat: -25.43, lng: -49.27, radiusKm: 30, rushFactor: 1.45, offpeakFactor: 1.18, cityKmh: 34 },
+    { name: 'FLN', lat: -27.60, lng: -48.55, radiusKm: 25, rushFactor: 1.45, offpeakFactor: 1.18, cityKmh: 32 },
+    { name: 'JOI', lat: -26.30, lng: -48.85, radiusKm: 22, rushFactor: 1.30, offpeakFactor: 1.10, cityKmh: 36 },
+    { name: 'BSB', lat: -15.79, lng: -47.88, radiusKm: 35, rushFactor: 1.40, offpeakFactor: 1.15, cityKmh: 38 },
+    { name: 'SSA', lat: -12.97, lng: -38.50, radiusKm: 30, rushFactor: 1.55, offpeakFactor: 1.22, cityKmh: 30 },
+    { name: 'REC', lat:  -8.05, lng: -34.88, radiusKm: 28, rushFactor: 1.50, offpeakFactor: 1.20, cityKmh: 30 },
+    { name: 'FOR', lat:  -3.73, lng: -38.52, radiusKm: 28, rushFactor: 1.45, offpeakFactor: 1.18, cityKmh: 32 },
+  ];
+
+  function haversineKm(a, b) {
+    const R = 6371;
+    const toRad = x => x * Math.PI / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const la1 = toRad(a.lat), la2 = toRad(b.lat);
+    const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  // Travel-time estimator. Simple and calibrated so that a metro-based office
+  // is never penalized harder than a rural-based one just for being in a metro.
+  // Returns minutes.
+  function estimateTravelMinutes(origin, dest, scenario) {
+    const km = haversineKm(origin, dest);
+    const roadKm = km * 1.3; // detour factor
+
+    // If both endpoints are essentially the same (same CEP), no commute.
+    if (km < 0.1) return 0;
+
+    function metroOf(pt) {
+      let m = null, best = Infinity;
+      for (const x of METRO_RUSH) {
+        const d = haversineKm(pt, x);
+        if (d < x.radiusKm && d < best) { m = x; best = d; }
+      }
+      return m;
+    }
+    const mo = metroOf(origin);
+    const md = metroOf(dest);
+    const sameMetro = mo && md && mo.name === md.name;
+
+    // Rush-hour factor applied as TIME multiplier at the end (not compounded per segment).
+    const scenarioFactor = scenario === 'rush' ? 1.0 : scenario === 'offpeak' ? 0.80 : 0.70;
+
+    let minutes;
+    if (sameMetro) {
+      // Intra-metro commute — typical urban speeds.
+      // Use cityKmh as the OFFPEAK speed; scenarioFactor scales down for calm times.
+      const metroMult = scenario === 'rush' ? mo.rushFactor : scenario === 'offpeak' ? mo.offpeakFactor : 1.0;
+      const effKmh = mo.cityKmh / (metroMult / 1.5); // calibrated so SP intra is ~45 min for 15km in rush
+      minutes = (roadKm / Math.max(effKmh, 15)) * 60;
+    } else if (roadKm < 20) {
+      // Short hop outside any metro
+      const base = mo || md ? (mo||md).cityKmh : 38;
+      minutes = (roadKm / base) * 60 * (scenario === 'rush' ? 1.2 : 1.0);
+    } else {
+      // Longer trip: mostly highway, small urban penalty at metro end(s).
+      const highwayKmh = scenario === 'rush' ? 82 : 92;
+      const urbanEndKm = (mo ? 12 : 0) + (md ? 12 : 0); // modest urban egress
+      const urbanPortion = Math.min(0.6, urbanEndKm / roadKm);
+      const urbanKmh = 28 * (scenario === 'rush' ? 0.8 : 1.0);
+      const effKmh = 1 / (urbanPortion / urbanKmh + (1 - urbanPortion) / highwayKmh);
+      minutes = (roadKm / effKmh) * 60;
+    }
+    return minutes;
+  }
+
+  // Apply rush/offpeak multiplier to an OSRM free-flow duration (seconds)
+  // using the metro tables above. Returns minutes.
+  function applyRushToOsrm(originPt, destPt, seconds, scenario) {
+    const minutesFree = seconds / 60;
+    if (scenario === 'free') return minutesFree;
+    // Find metro (if any) at either endpoint
+    function metroOf(pt) {
+      let best = null, bestD = Infinity;
+      for (const x of METRO_RUSH) {
+        const d = haversineKm(pt, x);
+        if (d < x.radiusKm && d < bestD) { best = x; bestD = d; }
+      }
+      return best;
+    }
+    const mo = metroOf(originPt), md = metroOf(destPt);
+    const metro = mo || md;
+    let mult;
+    if (mo && md && mo.name === md.name) {
+      // intra-metro: full metro factor
+      mult = scenario === 'rush' ? mo.rushFactor : mo.offpeakFactor;
+    } else if (metro) {
+      // touches a metro on one end
+      mult = scenario === 'rush' ? (1 + (metro.rushFactor - 1) * 0.5)
+                                 : (1 + (metro.offpeakFactor - 1) * 0.5);
+    } else {
+      // rural/intercity: light bump
+      mult = scenario === 'rush' ? 1.15 : 1.05;
+    }
+    return minutesFree * mult;
+  }
+
+  // Async version: computes best office using OSRM real road durations when available.
+  // Falls back to the analytical model for pairs OSRM couldn't answer.
+  async function computeBestOfficeOsrm(people, scenario, onProgress) {
+    if (people.length === 0) return null;
+    const N = people.length;
+    const uniq = new Map();
+    for (const p of people) {
+      const k = `${p.lat.toFixed(4)}|${p.lng.toFixed(4)}`;
+      if (!uniq.has(k)) uniq.set(k, { lat: p.lat, lng: p.lng, city: p.city, state: p.state });
+    }
+    const candidates = [...uniq.values()];
+
+    // Fetch matrix for all (person, candidate) pairs
+    const matrix = await fetchOsrmMatrix(people, candidates, onProgress);
+
+    function travelMin(person, cand) {
+      const pk = pairKey(person, cand);
+      const rec = matrix.get(pk);
+      if (rec && rec.seconds != null) {
+        return applyRushToOsrm(person, cand, rec.seconds, scenario);
+      }
+      // Fallback
+      return estimateTravelMinutes(person, cand, scenario);
+    }
+
+    let bestPt = null, bestScore = -Infinity;
+    const scored = [];
+    for (const c of candidates) {
+      let under60 = 0, under45 = 0, under30 = 0, totalMin = 0;
+      for (const p of people) {
+        const t = travelMin(p, c);
+        totalMin += t;
+        if (t <= 60) under60++;
+        if (t <= 45) under45++;
+        if (t <= 30) under30++;
+      }
+      const score = under60 * 1000 + under45 * 400 + under30 * 600 - (totalMin / N) * 2;
+      scored.push({ ...c, cost: totalMin, score, under60, under45, under30 });
+      if (score > bestScore) { bestScore = score; bestPt = c; }
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const seenCity = new Set();
+    const top = [];
+    for (const s of scored) {
+      const key = `${s.city}|${s.state}`;
+      if (seenCity.has(key)) continue;
+      seenCity.add(key);
+      top.push({ ...s, n: 0 });
+      if (top.length >= 5) break;
+    }
+    const best = { ...top[0], cost: top[0].cost };
+    return { best, top, total: N, travelMin };
+  }
+
+  // Find best office location given current filtered people.
+  // Brute-force medoid: every person's location is a candidate, pick the one
+  // that minimizes SUM (== AVG) of travel minutes for everyone.
+  function computeBestOffice(people, scenario) {
+    if (people.length === 0) return null;
+    const N = people.length;
+
+    // De-dupe candidate points by CEP coordinate (multiple people share addresses).
+    const uniq = new Map();
+    for (const p of people) {
+      const k = `${p.lat.toFixed(4)}|${p.lng.toFixed(4)}`;
+      if (!uniq.has(k)) uniq.set(k, { lat: p.lat, lng: p.lng, city: p.city, state: p.state });
+    }
+    const candidates = [...uniq.values()];
+
+    // Evaluate every candidate against every person. ~800×800 = 640K calls — trivial.
+    // Objective: maximize the number of people reachable within 60 min,
+    // tie-break by average travel time. This matches what users actually want:
+    // "best office to maximize commutable headcount", not geographic median.
+    let bestPt = null, bestScore = -Infinity;
+    const scored = [];
+    for (const c of candidates) {
+      let under60 = 0, under45 = 0, under30 = 0, totalMin = 0;
+      for (const p of people) {
+        const t = estimateTravelMinutes(p, c, scenario);
+        totalMin += t;
+        if (t <= 60) under60++;
+        if (t <= 45) under45++;
+        if (t <= 30) under30++;
+      }
+      // Composite score:
+      //   - strongly reward people reachable in <=60 min (main product goal)
+      //   - reward <=30 min more (great commutes)
+      //   - reward <=45 min moderately
+      //   - tiny penalty on average minutes as tiebreaker
+      const score = under60 * 1000 + under45 * 400 + under30 * 600 - (totalMin / N) * 2;
+      scored.push({ ...c, cost: totalMin, score, under60, under45, under30 });
+      if (score > bestScore) { bestScore = score; bestPt = c; }
+    }
+    scored.sort((a, b) => b.score - a.score);
+
+    // Pick top-5 alternatives, dedup'd by city
+    const seenCity = new Set();
+    const top = [];
+    for (const s of scored) {
+      const key = `${s.city}|${s.state}`;
+      if (seenCity.has(key)) continue;
+      seenCity.add(key);
+      top.push({ ...s, n: 0 });
+      if (top.length >= 5) break;
+    }
+    const best = { ...top[0], cost: top[0].cost };
+    return { best, top, total: N };
+  }
+
+  function summarizeOffice(res, scenario) {
+    const { best, top, total, travelMin } = res;
+    // Per-person distribution
+    const peopleRef = getFilteredPeople();
+    const fn = travelMin || ((p, o) => estimateTravelMinutes(p, o, scenario));
+    const times = peopleRef.map(p => fn(p, best)).sort((a, b) => a - b);
+    const avg = times.reduce((s, t) => s + t, 0) / times.length;
+    const median = times[Math.floor(times.length/2)];
+    const p90 = times[Math.floor(times.length * 0.9)];
+    const under30 = times.filter(t => t <= 30).length;
+    const under45 = times.filter(t => t <= 45).length;
+    const under60 = times.filter(t => t <= 60).length;
+    const buckets = [
+      { label: '\u226430 min', n: under30, color: '#2d7d46' },
+      { label: '\u226445 min', n: under45 - under30, color: '#8bc34a' },
+      { label: '\u226460 min', n: under60 - under45, color: '#ffb300' },
+      { label: '>60 min',       n: times.length - under60, color: '#e53935' },
+    ];
+    return { avg, median, p90, buckets, times, top };
+  }
+
+  let officeMarker = null;
+  let officeRings = [];
+  let currentOffice = null;
+  let currentTop = [];
+  let currentBucketTimes = null;
+  let currentScenario = 'rush';
+
+  async function reverseGeocode(lat, lng) {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14&accept-language=pt-BR`, {
+        headers: { 'Accept-Language': 'pt-BR' }
+      });
+      const j = await r.json();
+      if (j.address) {
+        const a = j.address;
+        const locality = a.suburb || a.neighbourhood || a.city_district || a.town || a.village;
+        const city = a.city || a.town || a.municipality || a.village || '';
+        const state = a.state || '';
+        return [locality, city, state].filter(Boolean).join(', ');
+      }
+    } catch (e) { /* offline fallback */ }
+    return null;
+  }
+
+  function drawOffice(office, summary) {
+    if (officeMarker) map.removeLayer(officeMarker);
+    officeRings.forEach(r => map.removeLayer(r));
+    officeRings = [];
+
+    const icon = L.divIcon({
+      className: 'office-pin',
+      html: '<div class=\"office-pin-inner\"></div>',
+      iconSize: [36, 36],
+      iconAnchor: [18, 36],
+    });
+    officeMarker = L.marker([office.lat, office.lng], { icon, zIndexOffset: 1000 })
+      .bindTooltip(`<b>Melhor escrit\u00f3rio</b><br>M\u00e9dia: ${summary.avg.toFixed(0)} min`, { className: 'city-tip', direction: 'top', offset: [0, -28] })
+      .addTo(map);
+
+    // Approx isochrone rings (30 / 60 min) by inverting the travel-time model
+    // at the office location. We use mean travel speed derived from the summary itself.
+    // Speed (km/h) at the office ≈ nearby-metro cityKmh / rushFactor, with highway floor.
+    let officeSpeedKmh = 40; // default blended urban+highway
+    for (const m of METRO_RUSH) {
+      if (haversineKm(office, m) < m.radiusKm) {
+        const f = currentScenario === 'rush' ? m.rushFactor : (currentScenario === 'offpeak' ? m.offpeakFactor : 1.0);
+        officeSpeedKmh = (m.cityKmh / f) * 1.3; // blended with short-haul roads
+        break;
+      }
+    }
+    const isoStyles = [
+      { minutes: 30, color: '#2d7d46', fill: '#2d7d46', fillOpacity: 0.12, weight: 1.5, dashArray: '4,4' },
+      { minutes: 60, color: '#4caf50', fill: '#4caf50', fillOpacity: 0.06, weight: 1.2, dashArray: '6,6' },
+    ];
+    isoStyles.forEach(({ minutes, color, fill, fillOpacity, weight, dashArray }) => {
+      const km = (officeSpeedKmh * minutes) / 60;
+      const ring = L.circle([office.lat, office.lng], {
+        radius: km * 1000,
+        color,
+        weight,
+        dashArray,
+        fillColor: fill,
+        fillOpacity,
+        interactive: false,
+      });
+      ring.addTo(map);
+      officeRings.push(ring);
+    });
+
+    map.flyTo([office.lat, office.lng], Math.max(map.getZoom(), 10), { duration: 0.8 });
+  }
+
+  function renderOfficeResult(summary, office, addr, usedOsm) {
+    const container = document.getElementById('office-result');
+    const total = summary.buckets.reduce((s, b) => s + b.n, 0);
+    const bars = summary.buckets.map(b => {
+      const pct = total ? (b.n/total*100) : 0;
+      return `<div class=\"bar-row\"><span>${b.label}</span><span class=\"bar-bg\"><span class=\"bar-fill\" style=\"width:${pct.toFixed(1)}%;background:${b.color}\"></span></span><span>${b.n}</span></div>`;
+    }).join('');
+    const locLabel = addr || `${office.city || 'Local \u00f3timo'}${office.state ? ' \u00b7 ' + office.state : ''}`;
+    const candList = summary.top.map((t, i) => {
+      const active = i === 0 ? 'active' : '';
+      const avg = (t.cost / summary.times.length);
+      return `<div class=\"cand-row ${active}\" data-lat=\"${t.lat}\" data-lng=\"${t.lng}\">
+        <div class=\"cand-head\">
+          <span class=\"rank\">${i+1}</span>
+          <span class=\"cand-name\">${t.city || 'Local'}${t.state ? ' \u00b7 ' + t.state : ''}</span>
+          <span class=\"cand-score\">${Math.round(t.score).toLocaleString('pt-BR')}</span>
+        </div>
+        <div class=\"cand-breakdown\">
+          <span class=\"b b30\">\u226430min: <b>${t.under30}</b></span>
+          <span class=\"b b45\">\u226445min: <b>${t.under45}</b></span>
+          <span class=\"b b60\">\u226460min: <b>${t.under60}</b></span>
+          <span class=\"b bavg\">m\u00e9d: <b>${avg.toFixed(0)}min</b></span>
+        </div>
+      </div>`;
+    }).join('');
+    container.innerHTML = `
+      <div class=\"office-result\">
+        <div class=\"addr\">\ud83d\udccd ${locLabel}</div>
+        <div style=\"display:flex;gap:6px;align-items:center;margin-top:2px\">
+          <span style=\"font-size:10px;color:var(--text-faint);font-variant-numeric:tabular-nums\">${office.lat.toFixed(4)}, ${office.lng.toFixed(4)}</span>
+          <span style=\"font-size:9px;padding:1px 6px;border-radius:3px;${usedOsm ? 'background:#e8f5e9;color:#2d7d46' : 'background:#fff3e0;color:#e65100'}\" title=\"${usedOsm ? 'Dist\u00e2ncias calculadas com OpenStreetMap (OSRM). Fator de rush por metr\u00f3pole aplicado sobre tempo livre.' : 'OSM indispon\u00edvel — usando modelo anal\u00edtico (haversine + fator de rush).'}\">${usedOsm ? 'OSM' : 'MODELO'}</span>
+        </div>
+        <div class=\"office-metrics\">
+          <div class=\"office-metric\"><div class=\"lbl\">Tempo m\u00e9dio</div><div class=\"val\">${summary.avg.toFixed(0)} min</div></div>
+          <div class=\"office-metric\"><div class=\"lbl\">Mediana</div><div class=\"val\">${summary.median.toFixed(0)} min</div></div>
+          <div class=\"office-metric\"><div class=\"lbl\">P90</div><div class=\"val\">${summary.p90.toFixed(0)} min</div></div>
+          <div class=\"office-metric\"><div class=\"lbl\">Pessoas</div><div class=\"val\">${summary.times.length}</div></div>
+        </div>
+        <div class=\"office-dist\">
+          <div style=\"margin-bottom:4px\">Distribui\u00e7\u00e3o do deslocamento</div>
+          ${bars}
+        </div>
+        <div class=\"office-candidates\">
+          <div style=\"font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-faint);margin-bottom:2px\">Alternativas</div>
+          ${candList}
+        </div>
+      </div>
+    `;
+    container.querySelectorAll('.cand-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const lat = parseFloat(row.dataset.lat), lng = parseFloat(row.dataset.lng);
+        map.flyTo([lat, lng], Math.max(map.getZoom(), 10), { duration: 0.7 });
+      });
+    });
+  }
+
+  async function runOfficeFinder() {
+    const btn = document.getElementById('run-office');
+    const container = document.getElementById('office-result');
+    let usedOsm = false;
+    btn.disabled = true;
+    btn.textContent = 'Calculando\u2026';
+    container.innerHTML = '<div style=\"font-size:11px;color:var(--text-dim);padding:8px 0\">Buscando rotas reais no OpenStreetMap\u2026</div>';
+
+    // Yield so the UI updates
+    await new Promise(r => setTimeout(r, 40));
+
+    const people = getFilteredPeople();
+    const scenario = document.getElementById('traffic-scenario').value;
+    currentScenario = scenario;
+
+    if (people.length === 0) {
+      container.innerHTML = '<div style=\"font-size:12px;color:var(--text-dim)\">Nenhuma pessoa no filtro atual.</div>';
+      btn.disabled = false; btn.textContent = 'Calcular localiza\u00e7\u00e3o \u00f3tima';
+      return;
+    }
+
+    // Try OSRM first; fall back to analytical model on any error.
+    let res = null;
+    try {
+      res = await computeBestOfficeOsrm(people, scenario, (done, total) => {
+        const pct = total ? Math.round(done/total*100) : 0;
+        btn.textContent = `OSM ${pct}%`;
+        container.innerHTML = `<div style=\"font-size:11px;color:var(--text-dim);padding:8px 0\">Consultando OpenStreetMap\u2026 <b>${done.toLocaleString('pt-BR')}</b> de <b>${total.toLocaleString('pt-BR')}</b> rotas (${pct}%)</div>`;
+      });
+      if (res) usedOsm = true;
+    } catch(e) {
+      console.warn('OSRM failed, falling back', e);
+    }
+    if (!res) {
+      container.innerHTML = '<div style=\"font-size:11px;color:var(--text-dim);padding:8px 0\">Usando modelo anal\u00edtico (OSM indispon\u00edvel)\u2026</div>';
+      await new Promise(r => setTimeout(r, 40));
+      res = computeBestOffice(people, scenario);
+    }
+    currentOffice = res.best;
+    currentTop = res.top;
+    const summary = summarizeOffice(res, scenario);
+    currentBucketTimes = summary;
+
+    renderOfficeResult(summary, res.best, null, usedOsm);
+    drawOffice(res.best, summary);
+
+    // Async: enrich with reverse-geocoded address
+    const addr = await reverseGeocode(res.best.lat, res.best.lng);
+    if (addr) renderOfficeResult(summary, res.best, addr, usedOsm);
+
+    btn.disabled = false;
+    btn.textContent = 'Recalcular';
+  }
+
+  document.getElementById('run-office').addEventListener('click', runOfficeFinder);
+  document.getElementById('traffic-scenario').addEventListener('change', () => {
+    if (currentOffice) runOfficeFinder();
+  });
+
+  // Hide office marker when panel filters change substantially
+  const originalRenderAll = renderAll;
+  // (No override needed — marker remains until user re-runs)
+
   // ----- Panel show/hide wiring -----
   const app = document.querySelector('.app');
 
@@ -1385,7 +2242,7 @@
   document.getElementById('sheet-backdrop').addEventListener('click', () => setSidebar(true));
   document.getElementById('mobile-open-filters').addEventListener('click', () => setSidebar(false));
 
-  // Start with sidebar minimized
+  // Start with sidebar minimized on all devices
   setSidebar(true);
 
   document.querySelectorAll('.panel-close[data-hide]').forEach(btn => {
@@ -1404,8 +2261,12 @@
     document.getElementById('panel-top').classList.remove('hidden');
     e.currentTarget.classList.remove('visible');
   });
+  document.getElementById('restore-office').addEventListener('click', (e) => {
+    document.getElementById('panel-office').classList.remove('hidden');
+    e.currentTarget.classList.remove('visible');
+  });
 
-  // Keep Leaflet in sync with viewport changes
+  // Keep Leaflet in sync with viewport changes (orientation, window resize, iOS chrome show/hide)
   let resizeTimer;
   function scheduleInvalidate() {
     clearTimeout(resizeTimer);
