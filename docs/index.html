@@ -879,6 +879,14 @@
     color: #fff;
     font-size: 16px;
   }
+  .office-pin-inner.rank-2 { background: #4caf50; opacity: 0.92; }
+  .office-pin-inner.rank-3 { background: #81c784; opacity: 0.88; }
+  .office-pin-inner.rank-2::after,
+  .office-pin-inner.rank-3::after {
+    content: attr(data-rank);
+    font-size: 14px;
+    font-weight: 700;
+  }
   .office-isochrone {
     fill: #2d7d46;
     fill-opacity: 0.08;
@@ -1940,14 +1948,22 @@
       if (score > bestScore) { bestScore = score; bestPt = c; }
     }
     scored.sort((a, b) => b.score - a.score);
-    const seenCity = new Set();
+    // Pick 3 diverse alternatives: same city OK, but each at least 2km apart
+    // so the user gets real spatial options, not 3 pins in the same block.
     const top = [];
+    const MIN_SEP_KM = 2;
     for (const s of scored) {
-      const key = `${s.city}|${s.state}`;
-      if (seenCity.has(key)) continue;
-      seenCity.add(key);
+      const tooClose = top.some(t => haversineKm(t, s) < MIN_SEP_KM);
+      if (tooClose) continue;
       top.push({ ...s, n: 0 });
-      if (top.length >= 5) break;
+      if (top.length >= 3) break;
+    }
+    // If filter is too sparse (small city, few candidates), fall back to top-3 by score
+    if (top.length < 3) {
+      for (const s of scored) {
+        if (top.length >= 3) break;
+        if (!top.some(t => t.lat === s.lat && t.lng === s.lng)) top.push({ ...s, n: 0 });
+      }
     }
     const best = { ...top[0], cost: top[0].cost };
     return { best, top, total: N, travelMin };
@@ -1994,15 +2010,20 @@
     }
     scored.sort((a, b) => b.score - a.score);
 
-    // Pick top-5 alternatives, dedup'd by city
-    const seenCity = new Set();
+    // Pick 3 spatially-diverse alternatives (≥2km apart)
     const top = [];
+    const MIN_SEP_KM = 2;
     for (const s of scored) {
-      const key = `${s.city}|${s.state}`;
-      if (seenCity.has(key)) continue;
-      seenCity.add(key);
+      const tooClose = top.some(t => haversineKm(t, s) < MIN_SEP_KM);
+      if (tooClose) continue;
       top.push({ ...s, n: 0 });
-      if (top.length >= 5) break;
+      if (top.length >= 3) break;
+    }
+    if (top.length < 3) {
+      for (const s of scored) {
+        if (top.length >= 3) break;
+        if (!top.some(t => t.lat === s.lat && t.lng === s.lng)) top.push({ ...s, n: 0 });
+      }
     }
     const best = { ...top[0], cost: top[0].cost };
     return { best, top, total: N };
@@ -2010,10 +2031,14 @@
 
   function summarizeOffice(res, scenario) {
     const { best, top, total, travelMin } = res;
-    // Per-person distribution
     const peopleRef = getFilteredPeople();
     const fn = travelMin || ((p, o) => estimateTravelMinutes(p, o, scenario));
-    const times = peopleRef.map(p => fn(p, best)).sort((a, b) => a - b);
+    return { ...summarizeForOffice(best, peopleRef, fn), top };
+  }
+
+  // Compute distribution/stats for a specific office point using a travelMin fn.
+  function summarizeForOffice(office, people, travelFn) {
+    const times = people.map(p => travelFn(p, office)).sort((a, b) => a - b);
     const avg = times.reduce((s, t) => s + t, 0) / times.length;
     const median = times[Math.floor(times.length/2)];
     const p90 = times[Math.floor(times.length * 0.9)];
@@ -2026,15 +2051,19 @@
       { label: '\u226460 min', n: under60 - under45, color: '#ffb300' },
       { label: '>60 min',       n: times.length - under60, color: '#e53935' },
     ];
-    return { avg, median, p90, buckets, times, top };
+    return { avg, median, p90, buckets, times };
   }
 
   let officeMarker = null;
+  let officeAltMarkers = [];
   let officeRings = [];
   let currentOffice = null;
   let currentTop = [];
   let currentBucketTimes = null;
   let currentScenario = 'rush';
+  let currentTravelMin = null;
+  let currentUsedOsm = false;
+  let currentAddr = null;
 
   async function reverseGeocode(lat, lng) {
     try {
@@ -2055,6 +2084,8 @@
 
   function drawOffice(office, summary) {
     if (officeMarker) map.removeLayer(officeMarker);
+    officeAltMarkers.forEach(m => map.removeLayer(m));
+    officeAltMarkers = [];
     officeRings.forEach(r => map.removeLayer(r));
     officeRings = [];
 
@@ -2065,8 +2096,26 @@
       iconAnchor: [18, 36],
     });
     officeMarker = L.marker([office.lat, office.lng], { icon, zIndexOffset: 1000 })
-      .bindTooltip(`<b>Melhor escrit\u00f3rio</b><br>M\u00e9dia: ${summary.avg.toFixed(0)} min`, { className: 'city-tip', direction: 'top', offset: [0, -28] })
+      .bindTooltip(`<b>1\u00ba \u2014 ${office.city || 'Melhor op\u00e7\u00e3o'}</b><br>M\u00e9dia: ${summary.avg.toFixed(0)} min`, { className: 'city-tip', direction: 'top', offset: [0, -28] })
       .addTo(map);
+
+    // Alternative pins (#2, #3)
+    if (summary.top && summary.top.length > 1) {
+      summary.top.slice(1).forEach((alt, i) => {
+        const rank = i + 2;
+        const altIcon = L.divIcon({
+          className: 'office-pin',
+          html: `<div class=\"office-pin-inner rank-${rank}\" data-rank=\"${rank}\"></div>`,
+          iconSize: [36, 36],
+          iconAnchor: [18, 36],
+        });
+        const avgMin = (alt.cost / (summary.times.length || 1)).toFixed(0);
+        const mk = L.marker([alt.lat, alt.lng], { icon: altIcon, zIndexOffset: 900 - i })
+          .bindTooltip(`<b>${rank}\u00ba \u2014 ${alt.city || 'Alternativa'}</b><br>M\u00e9dia: ${avgMin} min`, { className: 'city-tip', direction: 'top', offset: [0, -28] })
+          .addTo(map);
+        officeAltMarkers.push(mk);
+      });
+    }
 
     // Approx isochrone rings (30 / 60 min) by inverting the travel-time model
     // at the office location. We use mean travel speed derived from the summary itself.
@@ -2101,18 +2150,19 @@
     map.flyTo([office.lat, office.lng], Math.max(map.getZoom(), 10), { duration: 0.8 });
   }
 
-  function renderOfficeResult(summary, office, addr, usedOsm) {
+  function renderOfficeResult(summary, office, addr, usedOsm, selectedIdx) {
     const container = document.getElementById('office-result');
     const total = summary.buckets.reduce((s, b) => s + b.n, 0);
+    const sel = selectedIdx || 0;
     const bars = summary.buckets.map(b => {
       const pct = total ? (b.n/total*100) : 0;
       return `<div class=\"bar-row\"><span>${b.label}</span><span class=\"bar-bg\"><span class=\"bar-fill\" style=\"width:${pct.toFixed(1)}%;background:${b.color}\"></span></span><span>${b.n}</span></div>`;
     }).join('');
     const locLabel = addr || `${office.city || 'Local \u00f3timo'}${office.state ? ' \u00b7 ' + office.state : ''}`;
     const candList = summary.top.map((t, i) => {
-      const active = i === 0 ? 'active' : '';
+      const active = i === sel ? 'active' : '';
       const avg = (t.cost / summary.times.length);
-      return `<div class=\"cand-row ${active}\" data-lat=\"${t.lat}\" data-lng=\"${t.lng}\">
+      return `<div class=\"cand-row ${active}\" data-idx=\"${i}\" data-lat=\"${t.lat}\" data-lng=\"${t.lng}\">
         <div class=\"cand-head\">
           <span class=\"rank\">${i+1}</span>
           <span class=\"cand-name\">${t.city || 'Local'}${t.state ? ' \u00b7 ' + t.state : ''}</span>
@@ -2151,10 +2201,95 @@
     `;
     container.querySelectorAll('.cand-row').forEach(row => {
       row.addEventListener('click', () => {
-        const lat = parseFloat(row.dataset.lat), lng = parseFloat(row.dataset.lng);
-        map.flyTo([lat, lng], Math.max(map.getZoom(), 10), { duration: 0.7 });
+        const idx = parseInt(row.dataset.idx, 10);
+        selectAlternative(idx);
       });
     });
+  }
+
+  // Switch the main box + map focus to the selected alternative (0,1,2).
+  async function selectAlternative(idx) {
+    if (!currentTop || !currentTop[idx]) return;
+    const office = currentTop[idx];
+    const people = getFilteredPeople();
+    const travelFn = currentTravelMin || ((p, o) => estimateTravelMinutes(p, o, currentScenario));
+    const stats = summarizeForOffice(office, people, travelFn);
+    const summary = { ...stats, top: currentTop };
+    currentOffice = office;
+    currentBucketTimes = summary;
+
+    // Render with loading addr
+    renderOfficeResult(summary, office, null, currentUsedOsm, idx);
+    drawOfficeSelected(office, summary, idx);
+
+    // Fetch fresh address for selected office
+    const addr = await reverseGeocode(office.lat, office.lng);
+    if (addr && currentOffice === office) {
+      renderOfficeResult(summary, office, addr, currentUsedOsm, idx);
+    }
+  }
+
+  // Redraw pins promoting the selected alt to the primary ★ position.
+  function drawOfficeSelected(office, summary, selectedIdx) {
+    if (officeMarker) map.removeLayer(officeMarker);
+    officeAltMarkers.forEach(m => map.removeLayer(m));
+    officeAltMarkers = [];
+    officeRings.forEach(r => map.removeLayer(r));
+    officeRings = [];
+
+    // Primary (★) at selected
+    const icon = L.divIcon({
+      className: 'office-pin',
+      html: '<div class=\"office-pin-inner\"></div>',
+      iconSize: [36, 36],
+      iconAnchor: [18, 36],
+    });
+    const primaryLabel = (selectedIdx + 1) + '\u00ba';
+    officeMarker = L.marker([office.lat, office.lng], { icon, zIndexOffset: 1000 })
+      .bindTooltip(`<b>${primaryLabel} \u2014 ${office.city || 'Op\u00e7\u00e3o selecionada'}</b><br>M\u00e9dia: ${summary.avg.toFixed(0)} min`, { className: 'city-tip', direction: 'top', offset: [0, -28] })
+      .addTo(map);
+
+    // Other alternatives keep their original rank label
+    summary.top.forEach((alt, i) => {
+      if (i === selectedIdx) return;
+      const rank = i + 1;
+      const altIcon = L.divIcon({
+        className: 'office-pin',
+        html: `<div class=\"office-pin-inner rank-${rank < 2 ? 2 : rank}\" data-rank=\"${rank}\"></div>`,
+        iconSize: [36, 36],
+        iconAnchor: [18, 36],
+      });
+      const avgMin = (alt.cost / (summary.times.length || 1)).toFixed(0);
+      const mk = L.marker([alt.lat, alt.lng], { icon: altIcon, zIndexOffset: 900 - i })
+        .bindTooltip(`<b>${rank}\u00ba \u2014 ${alt.city || 'Alternativa'}</b><br>M\u00e9dia: ${avgMin} min`, { className: 'city-tip', direction: 'top', offset: [0, -28] })
+        .addTo(map);
+      officeAltMarkers.push(mk);
+    });
+
+    // Rings at selected
+    let officeSpeedKmh = 40;
+    for (const m of METRO_RUSH) {
+      if (haversineKm(office, m) < m.radiusKm) {
+        const f = currentScenario === 'rush' ? m.rushFactor : (currentScenario === 'offpeak' ? m.offpeakFactor : 1.0);
+        officeSpeedKmh = (m.cityKmh / f) * 1.3;
+        break;
+      }
+    }
+    const isoStyles = [
+      { minutes: 30, color: '#2d7d46', fill: '#2d7d46', fillOpacity: 0.12, weight: 1.5, dashArray: '4,4' },
+      { minutes: 60, color: '#4caf50', fill: '#4caf50', fillOpacity: 0.06, weight: 1.2, dashArray: '6,6' },
+    ];
+    isoStyles.forEach(({ minutes, color, fill, fillOpacity, weight, dashArray }) => {
+      const km = (officeSpeedKmh * minutes) / 60;
+      const ring = L.circle([office.lat, office.lng], {
+        radius: km * 1000, color, weight, dashArray,
+        fillColor: fill, fillOpacity, interactive: false,
+      });
+      ring.addTo(map);
+      officeRings.push(ring);
+    });
+
+    map.flyTo([office.lat, office.lng], Math.max(map.getZoom(), 10), { duration: 0.7 });
   }
 
   async function runOfficeFinder() {
@@ -2203,15 +2338,21 @@
     }
     currentOffice = res.best;
     currentTop = res.top;
+    currentTravelMin = res.travelMin || ((p, o) => estimateTravelMinutes(p, o, scenario));
+    currentUsedOsm = usedOsm;
+    currentAddr = null;
     const summary = summarizeOffice(res, scenario);
     currentBucketTimes = summary;
 
-    renderOfficeResult(summary, res.best, null, usedOsm);
+    renderOfficeResult(summary, res.best, null, usedOsm, 0);
     drawOffice(res.best, summary);
 
     // Async: enrich with reverse-geocoded address
     const addr = await reverseGeocode(res.best.lat, res.best.lng);
-    if (addr) renderOfficeResult(summary, res.best, addr, usedOsm);
+    if (addr) {
+      currentAddr = addr;
+      renderOfficeResult(summary, res.best, addr, usedOsm, 0);
+    }
 
     btn.disabled = false;
     btn.textContent = 'Recalcular';
