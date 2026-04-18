@@ -693,10 +693,9 @@
       height: 32px;
       font-size: 18px;
     }
-    /* Transform arrow into a down chevron on mobile */
-    .sidebar-hide::after { content: '\\25BC'; font-size: 10px; }
+    /* Down chevron on mobile */
     .sidebar-hide { font-size: 0; }
-    .sidebar-hide::after { font-size: 12px; }
+    .sidebar-hide::after { content: '\25BC'; font-size: 12px; }
 
     /* Map takes full height, sidebar floats over */
     .map-wrap { grid-row: 1; grid-column: 1; height: 100vh; }
@@ -812,7 +811,6 @@
   .mobile-open-filters, .sheet-backdrop { display: none; }
 
   @media (max-width: 520px) {
-    .top-card { display: none; }
     .controls {
       max-width: calc(100vw - 20px);
       padding: 10px 12px;
@@ -853,7 +851,6 @@
     .app.sidebar-hidden .sidebar { transform: translateX(-100%); }
     .sidebar::before { display: none; }
     .sidebar .brand { padding-top: 0; }
-    .top-card { display: none; }
     .legend { font-size: 10px; padding: 8px 10px; min-width: 120px; }
     .ribbon { top: 42px; max-height: 40px; overflow-x: auto; flex-wrap: nowrap; }
   }
