@@ -686,6 +686,23 @@
     box-shadow: 0 4px 16px rgba(20,30,50,0.08);
     pointer-events: auto;
   }
+  .office-panel.dragging {
+    transition: none;
+    box-shadow: 0 8px 28px rgba(20,30,50,0.18);
+    cursor: grabbing;
+  }
+  .office-panel .drag-handle {
+    position: absolute;
+    top: 0; left: 0; right: 36px;
+    height: 36px;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .office-panel.dragging .drag-handle { cursor: grabbing; }
+  @media (max-width: 900px) {
+    .office-panel .drag-handle { display: none; }
+  }
   .office-panel h3 {
     font-size: 10px;
     text-transform: uppercase;
@@ -1213,6 +1230,7 @@
     <div class="ribbon" id="ribbon"></div>
 
     <div class="office-panel hidden" id="panel-office">
+      <div class="drag-handle" id="office-drag-handle" title="Arraste para reposicionar"></div>
       <button class="panel-close" data-hide="panel-office" data-restore="restore-office" title="Esconder">×</button>
       <h3>Melhor escritório</h3>
       <div class="subtitle">Minimiza o tempo médio de deslocamento na hora do rush considerando a concentração atual</div>
@@ -2424,6 +2442,106 @@
     document.getElementById('panel-office').classList.remove('hidden');
     e.currentTarget.classList.remove('visible');
   });
+
+  // Draggable office panel (desktop only, >= 901px)
+  (function setupOfficeDrag() {
+    const panel = document.getElementById('panel-office');
+    const handle = document.getElementById('office-drag-handle');
+    if (!panel || !handle) return;
+    const STORE_KEY = 'office_panel_pos_v1';
+    const isDesktop = () => window.matchMedia('(min-width: 901px)').matches;
+
+    // Panel is positioned relative to its offsetParent (.map-wrap), not the viewport.
+    // We store viewport coords in localStorage, so we need to convert both ways.
+    function parentOffset() {
+      const op = panel.offsetParent;
+      if (!op) return { x: 0, y: 0 };
+      const r = op.getBoundingClientRect();
+      return { x: r.left, y: r.top };
+    }
+
+    // Restore saved position
+    function applySavedPos() {
+      if (!isDesktop()) { panel.style.left = ''; panel.style.top = ''; panel.style.right = ''; panel.style.bottom = ''; return; }
+      try {
+        const raw = localStorage.getItem(STORE_KEY);
+        if (!raw) return;
+        const { left, top } = JSON.parse(raw); // viewport coords
+        const off = parentOffset();
+        const maxL = window.innerWidth - panel.offsetWidth - 8;
+        const maxT = window.innerHeight - panel.offsetHeight - 8;
+        const clampedVpLeft = Math.max(8, Math.min(left, maxL));
+        const clampedVpTop = Math.max(8, Math.min(top, maxT));
+        panel.style.left = (clampedVpLeft - off.x) + 'px';
+        panel.style.top = (clampedVpTop - off.y) + 'px';
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+      } catch (e) {}
+    }
+    applySavedPos();
+    // Re-apply when panel is shown (in case layout changed while hidden)
+    const mo = new MutationObserver(() => {
+      if (!panel.classList.contains('hidden')) applySavedPos();
+    });
+    mo.observe(panel, { attributes: true, attributeFilter: ['class'] });
+
+    // Also re-apply when sidebar toggles (map-wrap offset changes)
+    const appEl = document.querySelector('.app');
+    if (appEl) {
+      const smo = new MutationObserver(() => {
+        if (!panel.classList.contains('hidden')) applySavedPos();
+      });
+      smo.observe(appEl, { attributes: true, attributeFilter: ['class'] });
+    }
+
+    let dragging = false, startX = 0, startY = 0, startVpLeft = 0, startVpTop = 0;
+    handle.addEventListener('pointerdown', (e) => {
+      if (!isDesktop()) return;
+      if (e.button !== 0 && e.pointerType === 'mouse') return;
+      dragging = true;
+      const r = panel.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      startVpLeft = r.left; startVpTop = r.top;
+      panel.classList.add('dragging');
+      handle.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    handle.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const maxL = window.innerWidth - panel.offsetWidth - 8;
+      const maxT = window.innerHeight - panel.offsetHeight - 8;
+      const vpLeft = Math.max(8, Math.min(startVpLeft + dx, maxL));
+      const vpTop = Math.max(8, Math.min(startVpTop + dy, maxT));
+      const off = parentOffset();
+      panel.style.left = (vpLeft - off.x) + 'px';
+      panel.style.top = (vpTop - off.y) + 'px';
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+    });
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      panel.classList.remove('dragging');
+      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+      try {
+        const r = panel.getBoundingClientRect();
+        localStorage.setItem(STORE_KEY, JSON.stringify({ left: r.left, top: r.top }));
+      } catch (_) {}
+    }
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+
+    // Reset inline pos if crossing the mobile breakpoint
+    window.addEventListener('resize', () => {
+      if (!isDesktop()) {
+        panel.style.left = ''; panel.style.top = ''; panel.style.right = ''; panel.style.bottom = '';
+      } else {
+        applySavedPos();
+      }
+    });
+  })();
 
   // Keep Leaflet in sync with viewport changes (orientation, window resize, iOS chrome show/hide)
   let resizeTimer;
