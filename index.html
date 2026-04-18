@@ -1,0 +1,1425 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Heatmap — Distribuição de Pessoas no Brasil</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="data_ceps.js"></script>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #f0f2f5;
+    --border: #e2e5ea;
+    --border-strong: #cfd4dc;
+    --text: #1c2128;
+    --text-dim: #5a6572;
+    --text-faint: #8892a0;
+    --accent: oklch(0.58 0.17 30);
+    --accent-soft: oklch(0.58 0.17 30 / 0.12);
+    --hot: oklch(0.62 0.20 30);
+    --warm: oklch(0.72 0.16 60);
+    --cool: oklch(0.65 0.14 240);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    height: 100dvh;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    font-size: clamp(13px, 0.72vw + 11px, 15px);
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    height: 100vh;
+    transition: grid-template-columns 0.25s ease;
+  }
+  .app.sidebar-hidden {
+    grid-template-columns: 0 1fr;
+  }
+  .app.sidebar-hidden .sidebar { visibility: hidden; }
+
+  /* Panel hide button (top-right inside floating panels) */
+  .panel-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    background: transparent;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .panel-close:hover { background: var(--surface-2); color: var(--text); }
+
+  .top-card, .controls { position: absolute; }
+  .hidden { display: none !important; }
+
+  /* Floating restore toolbar */
+  .restore-bar {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 6px;
+    z-index: 1001;
+    pointer-events: auto;
+  }
+  .restore-btn {
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 7px 12px;
+    font-size: 11px;
+    color: var(--text);
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(20,30,50,0.08);
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-family: inherit;
+  }
+  .restore-btn.visible { display: inline-flex; }
+  .restore-btn:hover { background: var(--surface-2); }
+  .restore-btn .eye {
+    width: 12px; height: 12px; display: inline-block; color: var(--text-dim);
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .sidebar-hide {
+    position: absolute;
+    top: 14px;
+    right: 12px;
+    z-index: 10;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-family: inherit;
+  }
+  .sidebar-hide:hover { background: var(--border); color: var(--text); }
+
+  .brand {
+    padding: 20px 22px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand-label {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+  .brand-title {
+    margin-top: 6px;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .brand-sub {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .stat {
+    background: var(--surface);
+    padding: 14px 18px;
+  }
+  .stat-num {
+    font-size: 22px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .stat-num .pct { font-size: 11px; color: var(--text-dim); font-weight: 500; margin-left: 4px; }
+  .stat-label {
+    margin-top: 2px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+  }
+
+  /* ---------- Filter panel ---------- */
+  .filters {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 0 24px;
+  }
+  .filters::-webkit-scrollbar { width: 6px; }
+  .filters::-webkit-scrollbar-track { background: transparent; }
+  .filters::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .filter-section {
+    padding: 0 22px;
+    margin-bottom: 18px;
+  }
+
+  .filter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .filter-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .filter-actions {
+    display: flex;
+    gap: 10px;
+    font-size: 11px;
+  }
+  .filter-actions button {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font: inherit;
+    padding: 2px 0;
+    font-size: 11px;
+  }
+  .filter-actions button:hover { text-decoration: underline; }
+
+  .search {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 12px;
+    outline: none;
+    margin-bottom: 8px;
+  }
+  .search:focus { border-color: var(--accent); }
+
+  .chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 2px;
+  }
+  .chip-list::-webkit-scrollbar { width: 6px; }
+  .chip-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .chip:hover {
+    background: var(--surface-2);
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .chip.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .chip .count {
+    font-variant-numeric: tabular-nums;
+    font-size: 10px;
+    color: var(--text-faint);
+    font-weight: 500;
+  }
+  .chip.active .count { color: var(--accent); }
+
+  .empty-note {
+    font-size: 12px;
+    color: var(--text-faint);
+    padding: 12px 0;
+    font-style: italic;
+  }
+
+  /* ---------- Map side ---------- */
+  .map-wrap {
+    position: relative;
+    overflow: hidden;
+  }
+
+  #map {
+    width: 100%;
+    height: 100%;
+    background: #eaecef;
+    z-index: 1;
+  }
+
+  .leaflet-container {
+    background: #eaecef !important;
+    font-family: inherit;
+  }
+
+  .leaflet-control-attribution {
+    background: rgba(255,255,255,0.9) !important;
+    color: var(--text-faint) !important;
+    font-size: 10px !important;
+    border: 1px solid var(--border);
+  }
+  .leaflet-control-attribution a { color: var(--text-dim) !important; }
+  .leaflet-control-zoom a {
+    background: var(--surface) !important;
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+  }
+  .leaflet-control-zoom a:hover { background: var(--surface-2) !important; }
+
+  /* Overlay card */
+  .overlay {
+    position: absolute;
+    z-index: 1000;
+    pointer-events: none;
+  }
+  .overlay.has-pointer { pointer-events: auto; }
+
+  .top-card {
+    top: 20px; right: 20px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    min-width: 260px;
+    pointer-events: auto;
+    box-shadow: 0 4px 16px rgba(20,30,50,0.06);
+  }
+  .top-card h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+
+  .ranking-row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 5px 0;
+    font-size: 13px;
+  }
+  .ranking-row .rank {
+    color: var(--text-faint);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ranking-row .name {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ranking-row .bar {
+    width: 60px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .ranking-row .bar-fill {
+    height: 100%;
+    background: linear-gradient(to right, #8bc34a, #ffeb3b, #ff9800, #f44336);
+    border-radius: 2px;
+  }
+  .ranking-row .val {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+    font-size: 12px;
+    min-width: 30px;
+    text-align: right;
+  }
+
+  /* Legend */
+  .legend {
+    position: absolute;
+    bottom: 24px; left: 20px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    z-index: 1000;
+    min-width: 180px;
+    box-shadow: 0 4px 16px rgba(20,30,50,0.06);
+  }
+  .legend-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .legend-gradient {
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(to right, rgba(76,175,80,0.2), #8bc34a, #ffeb3b, #ff9800, #f44336);
+    margin-bottom: 4px;
+  }
+  .legend-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Active filter ribbon */
+  .ribbon {
+    position: absolute;
+    top: 20px; left: 20px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    max-width: calc(100% - 320px);
+    z-index: 1000;
+    pointer-events: auto;
+  }
+  .ribbon-chip {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 10px 5px 12px;
+    font-size: 11px;
+    color: var(--text);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 8px rgba(20,30,50,0.05);
+  }
+  .ribbon-chip .x {
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .ribbon-chip .x:hover { color: var(--text); }
+  .ribbon-chip .tag {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin-right: 2px;
+  }
+
+  /* Controls panel */
+  .controls {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    z-index: 1000;
+    width: 260px;
+    box-shadow: 0 4px 16px rgba(20,30,50,0.08);
+    pointer-events: auto;
+  }
+  .controls h3 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .ctrl-row:last-child { margin-bottom: 0; }
+  .ctrl-label {
+    font-size: 12px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ctrl-val {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    min-width: 28px;
+    text-align: right;
+  }
+  /* toggle switch */
+  .toggle {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s;
+    flex-shrink: 0;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 14px;
+    height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    transition: transform 0.15s;
+  }
+  .toggle.on {
+    background: #4caf50;
+    border-color: #4caf50;
+  }
+  .toggle.on::after {
+    transform: translateX(14px);
+  }
+  /* slider */
+  .slider-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .slider-row .lbl {
+    font-size: 12px;
+    color: var(--text);
+  }
+  .slider-row .val {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .slider-row input[type=range] {
+    grid-column: 1 / -1;
+    width: 100%;
+    -webkit-appearance: none;
+    background: transparent;
+    margin: 4px 0 0;
+  }
+  .slider-row input[type=range]::-webkit-slider-runnable-track {
+    height: 4px;
+    background: linear-gradient(to right, #8bc34a, #ffeb3b, #ff9800, #f44336);
+    border-radius: 2px;
+  }
+  .slider-row input[type=range]::-moz-range-track {
+    height: 4px;
+    background: linear-gradient(to right, #8bc34a, #ffeb3b, #ff9800, #f44336);
+    border-radius: 2px;
+  }
+  .slider-row input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    background: #fff;
+    border: 2px solid var(--text);
+    border-radius: 50%;
+    margin-top: -5px;
+    cursor: pointer;
+  }
+  .slider-row input[type=range]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: #fff;
+    border: 2px solid var(--text);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .ctrl-section {
+    padding-top: 10px;
+    margin-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .ctrl-section:first-child { padding-top: 0; margin-top: 0; border-top: none; }
+
+  /* Marker tooltip */
+  .leaflet-tooltip.city-tip {
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(20,30,50,0.15);
+  }
+  .leaflet-tooltip.city-tip::before { display: none; }
+  .city-tip b { color: var(--accent); }
+  .city-tip .sub { color: var(--text-faint); font-size: 10px; }
+
+  /* Marker circle */
+  .city-marker {
+    stroke: rgba(255,255,255,0.8);
+    stroke-width: 1.5;
+    fill: oklch(0.72 0.18 30);
+    cursor: pointer;
+  }
+
+  /* ---------- Responsive: Tablet (medium) ---------- */
+  @media (max-width: 1200px) and (min-width: 901px) {
+    .app { grid-template-columns: 300px 1fr; }
+    .controls { max-width: 280px; }
+    .top-card { max-width: 300px; }
+    .ribbon { max-width: calc(100% - 300px); }
+  }
+
+  /* ---------- Responsive: Tablet & Mobile ---------- */
+  @media (max-width: 900px) {
+    html, body { font-size: 14px; }
+
+    .app {
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+      transition: none;
+    }
+    .app.sidebar-hidden { grid-template-columns: 1fr; }
+
+    /* Sidebar becomes a bottom sheet */
+    .sidebar {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      top: auto;
+      width: 100%;
+      max-height: 80vh;
+      height: 70vh;
+      z-index: 1100;
+      border-right: none;
+      border-top: 1px solid var(--border);
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -8px 32px rgba(20,30,50,0.15);
+      transform: translateY(0);
+      transition: transform 0.3s ease;
+    }
+    .app.sidebar-hidden .sidebar {
+      transform: translateY(calc(100% - 0px));
+      visibility: visible;
+      pointer-events: none;
+    }
+    /* Drag handle visual */
+    .sidebar::before {
+      content: '';
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 36px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--border-strong);
+      z-index: 11;
+    }
+    .sidebar .brand { padding-top: 24px; }
+    .sidebar-hide {
+      top: 16px;
+      right: 14px;
+      width: 32px;
+      height: 32px;
+      font-size: 18px;
+    }
+    /* Transform arrow into a down chevron on mobile */
+    .sidebar-hide::after { content: '\\25BC'; font-size: 10px; }
+    .sidebar-hide { font-size: 0; }
+    .sidebar-hide::after { font-size: 12px; }
+
+    /* Map takes full height, sidebar floats over */
+    .map-wrap { grid-row: 1; grid-column: 1; height: 100vh; }
+
+    /* Controls panel: compact, pinned top-right under restore bar */
+    .controls {
+      width: calc(100vw - 24px);
+      max-width: 320px;
+      top: 12px;
+      right: 12px;
+      padding: 12px 14px;
+    }
+
+    /* Top cidades: narrower */
+    .top-card {
+      width: calc(100vw - 24px);
+      max-width: 300px;
+      left: 12px;
+      right: auto !important;
+      bottom: 90px !important;
+      padding: 12px 14px;
+      min-width: 0;
+    }
+
+    /* Restore bar: centered at top, wrap if needed */
+    .restore-bar {
+      top: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      max-width: calc(100vw - 20px);
+    }
+    .restore-btn {
+      padding: 8px 14px;
+      font-size: 12px;
+    }
+
+    /* Ribbon: below restore-bar */
+    .ribbon {
+      top: 56px;
+      left: 12px;
+      right: 12px;
+      max-width: none;
+    }
+
+    /* Legend: smaller, bottom-right to avoid overlap */
+    .legend {
+      bottom: 14px;
+      left: 12px;
+      padding: 10px 12px;
+      min-width: 150px;
+    }
+
+    /* Floating button to open sidebar when hidden */
+    .mobile-open-filters {
+      display: flex;
+      position: fixed;
+      bottom: 20px;
+      right: 16px;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      box-shadow: 0 6px 18px rgba(20,30,50,0.25);
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      z-index: 1050;
+      cursor: pointer;
+    }
+    .app:not(.sidebar-hidden) .mobile-open-filters { display: none; }
+
+    /* Backdrop when sheet open */
+    .sheet-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 15, 25, 0.35);
+      z-index: 1099;
+      opacity: 1;
+      transition: opacity 0.3s;
+    }
+    .app.sidebar-hidden .sheet-backdrop { opacity: 0; pointer-events: none; }
+
+    /* Larger touch targets */
+    .chip {
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .toggle {
+      width: 40px;
+      height: 22px;
+    }
+    .toggle::after { width: 18px; height: 18px; }
+    .toggle.on::after { transform: translateX(18px); }
+
+    .slider-row input[type=range]::-webkit-slider-thumb {
+      width: 20px; height: 20px; margin-top: -8px;
+    }
+    .slider-row input[type=range]::-moz-range-thumb {
+      width: 20px; height: 20px;
+    }
+    .slider-row input[type=range]::-webkit-slider-runnable-track { height: 6px; }
+    .slider-row input[type=range]::-moz-range-track { height: 6px; }
+
+    .stat-num { font-size: 20px; }
+
+    /* Hide restore pills when sheet is open to avoid clutter */
+    .app:not(.sidebar-hidden) .restore-bar { display: none; }
+  }
+
+  /* Desktop default */
+  .mobile-open-filters, .sheet-backdrop { display: none; }
+
+  @media (max-width: 520px) {
+    .top-card { display: none; }
+    .controls {
+      max-width: calc(100vw - 20px);
+      padding: 10px 12px;
+    }
+    .controls h3 { font-size: 9px; margin-bottom: 8px; }
+    .ctrl-row, .slider-row { margin-bottom: 8px; }
+    .legend { min-width: 130px; font-size: 10px; }
+    .sidebar { height: 75vh; height: 75dvh; }
+    .restore-btn { padding: 7px 10px; font-size: 11px; }
+    .restore-bar { gap: 4px; }
+    .ribbon { top: 52px; left: 8px; right: 8px; font-size: 11px; padding: 6px 8px; }
+    .ribbon-chip { padding: 3px 8px; font-size: 11px; }
+    .mobile-open-filters { width: 48px; height: 48px; font-size: 18px; }
+  }
+
+  /* Tiny phones (iPhone SE, etc) */
+  @media (max-width: 380px) {
+    .restore-bar { flex-direction: column; align-items: stretch; gap: 4px; }
+    .restore-btn { width: 100%; text-align: center; }
+    .controls { top: 148px; }
+    .ribbon { top: 148px; }
+    .legend { padding: 8px 10px; min-width: 110px; }
+    .legend-title { font-size: 9px; }
+  }
+
+  /* Short screens (landscape phones) */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .sidebar {
+      left: 0; top: 0; bottom: 0; right: auto;
+      width: min(320px, 80vw);
+      height: 100vh; height: 100dvh;
+      max-height: none;
+      border-radius: 0;
+      border-right: 1px solid var(--border);
+      border-top: none;
+      transform: translateX(0);
+    }
+    .app.sidebar-hidden .sidebar { transform: translateX(-100%); }
+    .sidebar::before { display: none; }
+    .sidebar .brand { padding-top: 0; }
+    .top-card { display: none; }
+    .legend { font-size: 10px; padding: 8px 10px; min-width: 120px; }
+    .ribbon { top: 42px; max-height: 40px; overflow-x: auto; flex-wrap: nowrap; }
+  }
+
+  @media (pointer: coarse) {
+    /* Make Leaflet zoom buttons chunkier on touch */
+    .leaflet-control-zoom a {
+      width: 36px !important;
+      height: 36px !important;
+      line-height: 36px !important;
+      font-size: 18px !important;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sheet-backdrop" id="sheet-backdrop"></div>
+  <button class="mobile-open-filters" id="mobile-open-filters" aria-label="Abrir filtros">☰</button>
+  <aside class="sidebar" id="sidebar">
+    <button class="sidebar-hide" id="hide-sidebar" title="Esconder filtros" aria-label="Esconder filtros">‹</button>
+    <div class="brand">
+      <div class="brand-label">Distribuição geográfica</div>
+      <div class="brand-title">Mapa de Pessoas · Brasil</div>
+      <div class="brand-sub">Alocação por CEP · heatmap de concentração</div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-num" id="stat-people">—</div>
+        <div class="stat-label">Pessoas</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="stat-cities">—</div>
+        <div class="stat-label">Cidades</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="stat-states">—</div>
+        <div class="stat-label">Estados</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="stat-top">—</div>
+        <div class="stat-label">Top cidade</div>
+      </div>
+    </div>
+
+    <div class="filters">
+      <div class="filter-section">
+        <div class="filter-header">
+          <span class="filter-title">Estado</span>
+          <div class="filter-actions">
+            <button data-action="all-state">Todos</button>
+            <button data-action="clear-state">Limpar</button>
+          </div>
+        </div>
+        <div class="chip-list" id="state-chips"></div>
+      </div>
+
+      <div class="filter-section">
+        <div class="filter-header">
+          <span class="filter-title">Cidade</span>
+          <div class="filter-actions">
+            <button data-action="clear-city">Limpar</button>
+          </div>
+        </div>
+        <input type="text" class="search" id="city-search" placeholder="Buscar cidade…" />
+        <div class="chip-list" id="city-chips"></div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="map-wrap">
+    <div id="map"></div>
+
+    <div class="ribbon" id="ribbon"></div>
+
+    <div class="controls overlay has-pointer hidden" id="panel-controls">
+      <button class="panel-close" data-hide="panel-controls" data-restore="restore-controls" title="Esconder">×</button>
+      <div class="ctrl-section">
+        <h3>Camadas</h3>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Nuvem de calor</span>
+          <div class="toggle on" id="toggle-heat" role="switch" aria-checked="true"></div>
+        </div>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Pontos (dots)</span>
+          <div class="toggle on" id="toggle-dots" role="switch" aria-checked="true"></div>
+        </div>
+      </div>
+      <div class="ctrl-section">
+        <h3>Nuvem</h3>
+        <div class="slider-row">
+          <span class="lbl">Raio</span>
+          <span class="val" id="val-radius">45</span>
+          <input type="range" id="slider-radius" min="8" max="120" value="45" step="1" />
+        </div>
+        <div class="slider-row">
+          <span class="lbl">Desfoque</span>
+          <span class="val" id="val-blur">55</span>
+          <input type="range" id="slider-blur" min="1" max="120" value="55" step="1" />
+        </div>
+        <div class="slider-row">
+          <span class="lbl">Intensidade</span>
+          <span class="val" id="val-intensity">60</span>
+          <input type="range" id="slider-intensity" min="10" max="100" value="60" step="1" />
+        </div>
+      </div>
+    </div>
+
+    <div class="top-card overlay has-pointer hidden" id="panel-top" style="top: auto; bottom: 43px; right: 20px;">
+      <button class="panel-close" data-hide="panel-top" data-restore="restore-top" title="Esconder">×</button>
+      <h3>Top cidades</h3>
+      <div id="top-list"></div>
+    </div>
+
+    <div class="restore-bar">
+      <button class="restore-btn visible" id="restore-sidebar">☰ Filtros</button>
+      <button class="restore-btn visible" id="restore-controls">▤ Camadas</button>
+      <button class="restore-btn visible" id="restore-top">★ Top cidades</button>
+    </div>
+
+    <div class="legend overlay has-pointer">
+      <div class="legend-title">Densidade de pessoas</div>
+      <div class="legend-gradient"></div>
+      <div class="legend-scale">
+        <span>baixa</span>
+        <span>alta</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const PEOPLE = window.PEOPLE;
+  const STATE_NAMES = window.STATE_NAMES;
+
+  // ----- Aggregate people by (city|state) for counts -----
+  const cityTotals = {};      // "CITY|ST" -> count
+  const stateTotals = {};
+  PEOPLE.forEach(p => {
+    const key = `${p.city}|${p.state}`;
+    cityTotals[key] = (cityTotals[key] || 0) + 1;
+    stateTotals[p.state] = (stateTotals[p.state] || 0) + 1;
+  });
+
+  // Cluster people by identical lat/lng (same building/CEP)
+  // so we can draw one marker per location sized by headcount
+  const locTotals = {};       // "lat,lng" -> {lat, lng, city, state, count}
+  PEOPLE.forEach(p => {
+    const k = `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
+    if (!locTotals[k]) locTotals[k] = { lat: p.lat, lng: p.lng, city: p.city, state: p.state, count: 0 };
+    locTotals[k].count++;
+  });
+  const LOCS = Object.values(locTotals);
+
+  const allStates = Object.keys(stateTotals).sort((a, b) => stateTotals[b] - stateTotals[a]);
+
+  // ----- Filter state -----
+  const selected = {
+    states: new Set(),   // empty = all
+    cities: new Set(),   // stored as "CITY|STATE"
+  };
+
+  // Heat / dots options (user-adjustable)
+  const heatOpts = { radius: 45, blur: 55, intensity: 0.6 };
+  const visibility = { heat: true, dots: true };
+
+  // ----- Map init -----
+  const map = L.map('map', {
+    center: [-15.5, -54.5],
+    zoom: 4,
+    minZoom: 3,
+    maxZoom: 19,
+    zoomControl: true,
+    attributionControl: true,
+    preferCanvas: true,
+  });
+
+  // Light base with streets visible at deep zoom
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap · © CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19,
+  }).addTo(map);
+
+  // Heat layer
+  let heatLayer = null;
+  const markerLayer = L.layerGroup().addTo(map);
+
+  // ----- Render -----
+  function matchFilter(p) {
+    if (selected.states.size > 0 && !selected.states.has(p.state)) return false;
+    if (selected.cities.size > 0 && !selected.cities.has(`${p.city}|${p.state}`)) return false;
+    return true;
+  }
+
+  function getFilteredPeople() {
+    return PEOPLE.filter(matchFilter);
+  }
+
+  function getFilteredLocs() {
+    // Re-aggregate locations from filtered people
+    const agg = {};
+    for (const p of PEOPLE) {
+      if (!matchFilter(p)) continue;
+      const k = `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`;
+      if (!agg[k]) agg[k] = { lat: p.lat, lng: p.lng, city: p.city, state: p.state, count: 0 };
+      agg[k].count++;
+    }
+    return Object.values(agg);
+  }
+
+  function getHeatPoints(people) {
+    return people.map(p => [p.lat, p.lng, heatOpts.intensity]);
+  }
+
+  function getMarkerRadius(count, maxC) {
+    const r = 4 + Math.pow(count / maxC, 0.45) * 22;
+    return Math.max(3, r);
+  }
+
+  function colorForRatio(r) {
+    // Cool -> warm -> hot gradient via oklch, tuned for light map
+    const h = 240 - r * 210;
+    const c = 0.15 + r * 0.08;
+    const l = 0.62 - r * 0.05;
+    return `oklch(${l.toFixed(3)} ${c.toFixed(3)} ${h.toFixed(1)})`;
+  }
+
+  function render() {
+    const people = getFilteredPeople();
+    const locs = getFilteredLocs();
+
+    // Heat — one heat point per person, CEP-level
+    if (heatLayer) map.removeLayer(heatLayer);
+    if (people.length > 0 && visibility.heat) {
+      heatLayer = L.heatLayer(getHeatPoints(people), {
+        radius: heatOpts.radius,
+        blur: heatOpts.blur,
+        maxZoom: 13,
+        minOpacity: 0.25,
+        gradient: {
+          0.0: 'rgba(76, 175, 80, 0.0)',
+          0.15: 'rgba(76, 175, 80, 0.55)',
+          0.35: '#8bc34a',
+          0.55: '#ffeb3b',
+          0.75: '#ff9800',
+          1.0: '#f44336',
+        },
+      }).addTo(map);
+    }
+
+    // Markers - smaller and only visible at deep zoom so the heat cloud dominates
+    markerLayer.clearLayers();
+    const showMarkers = visibility.dots && map.getZoom() >= 11;
+    const maxC = Math.max(...locs.map(d => d.count), 1);
+    if (showMarkers) locs.forEach(d => {
+      const radius = getMarkerRadius(d.count, maxC);
+      const ratio = Math.min(1, Math.pow(d.count / maxC, 0.5));
+      const circle = L.circleMarker([d.lat, d.lng], {
+        radius,
+        weight: 1.5,
+        color: 'rgba(255,255,255,0.95)',
+        fillColor: colorForRatio(ratio),
+        fillOpacity: 0.92,
+        interactive: true,
+      });
+      const cityTitle = titleCase(d.city);
+      circle.bindTooltip(
+        `<b>${cityTitle}</b> · ${d.state}<br><span class="sub">${d.count} pessoa${d.count !== 1 ? 's' : ''} neste local</span>`,
+        { className: 'city-tip', direction: 'top', offset: [0, -radius - 2] }
+      );
+      circle.on('click', () => {
+        toggleCity(`${d.city}|${d.state}`);
+      });
+      circle.addTo(markerLayer);
+    });
+
+    renderStats(people, locs);
+    renderTopList(people);
+    renderRibbon();
+  }
+
+  function titleCase(s) {
+    return s.toLowerCase().replace(/\b\w/g, m => m.toUpperCase())
+      .replace(/\bD\b/g, 'd').replace(/\bDo\b/g, 'do')
+      .replace(/\bDa\b/g, 'da').replace(/\bDe\b/g, 'de')
+      .replace(/\bDos\b/g, 'dos').replace(/\bDas\b/g, 'das')
+      .replace(/\bE\b/g, 'e');
+  }
+
+  // ----- UI: stats -----
+  function renderStats(people, locs) {
+    const totalPeople = people.length;
+    const allPeople = PEOPLE.length;
+    const uniqueCities = new Set(people.map(p => `${p.city}|${p.state}`)).size;
+    const uniqueStates = new Set(people.map(p => p.state)).size;
+
+    // Top city by headcount
+    const cityCount = {};
+    people.forEach(p => { const k = `${p.city}|${p.state}`; cityCount[k] = (cityCount[k] || 0) + 1; });
+    const topEntry = Object.entries(cityCount).sort((a, b) => b[1] - a[1])[0];
+
+    const pct = allPeople > 0 ? Math.round(totalPeople / allPeople * 100) : 0;
+    document.getElementById('stat-people').innerHTML =
+      `${totalPeople}${totalPeople < allPeople ? `<span class="pct">${pct}%</span>` : ''}`;
+    document.getElementById('stat-cities').textContent = uniqueCities;
+    document.getElementById('stat-states').textContent = uniqueStates;
+    document.getElementById('stat-top').innerHTML = topEntry
+      ? `<span style="font-size:13px;font-weight:500">${titleCase(topEntry[0].split('|')[0])}</span>`
+      : '—';
+  }
+
+  // ----- UI: top list -----
+  function renderTopList(people) {
+    const cityCount = {};
+    people.forEach(p => { const k = `${p.city}|${p.state}`; cityCount[k] = (cityCount[k] || 0) + 1; });
+    const top = Object.entries(cityCount)
+      .map(([k, count]) => ({ city: k.split('|')[0], state: k.split('|')[1], count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+    const maxC = top[0]?.count || 1;
+    const container = document.getElementById('top-list');
+    container.innerHTML = top.map((d, i) => `
+      <div class="ranking-row">
+        <span class="rank">${String(i + 1).padStart(2, '0')}</span>
+        <span class="name">${titleCase(d.city)} <span style="color:var(--text-faint);font-size:10px">${d.state}</span></span>
+        <span class="bar"><span class="bar-fill" style="width:${(d.count / maxC * 100).toFixed(1)}%"></span></span>
+        <span class="val">${d.count}</span>
+      </div>
+    `).join('') || '<div class="empty-note">Sem dados para exibir</div>';
+  }
+
+  // ----- UI: state chips -----
+  function renderStateChips() {
+    const container = document.getElementById('state-chips');
+    container.innerHTML = allStates.map(st => `
+      <span class="chip ${selected.states.has(st) ? 'active' : ''}" data-state="${st}" title="${STATE_NAMES[st]}">
+        ${st}
+        <span class="count">${stateTotals[st]}</span>
+      </span>
+    `).join('');
+    container.querySelectorAll('.chip').forEach(el => {
+      el.addEventListener('click', () => toggleState(el.dataset.state));
+    });
+  }
+
+  // ----- UI: city chips -----
+  function renderCityChips() {
+    const container = document.getElementById('city-chips');
+    const search = (document.getElementById('city-search').value || '').trim().toLowerCase();
+    const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const q = normalize(search);
+
+    // Build city list from cityTotals
+    let cities = Object.entries(cityTotals).map(([k, count]) => {
+      const [city, state] = k.split('|');
+      return { city, state, count, key: k };
+    });
+    if (selected.states.size > 0) cities = cities.filter(c => selected.states.has(c.state));
+    if (q) cities = cities.filter(c => normalize(c.city).includes(q));
+    cities.sort((a, b) => b.count - a.count);
+
+    // Always surface currently selected cities
+    const additional = [];
+    selected.cities.forEach(key => {
+      if (!cities.some(c => c.key === key)) {
+        const [city, state] = key.split('|');
+        additional.push({ city, state, count: cityTotals[key] || 0, key });
+      }
+    });
+    cities = [...additional, ...cities];
+
+    if (cities.length === 0) {
+      container.innerHTML = '<div class="empty-note">Nenhuma cidade corresponde</div>';
+      return;
+    }
+
+    // Cap list size for perf
+    const capped = cities.slice(0, 80);
+    container.innerHTML = capped.map(d => {
+      return `
+        <span class="chip ${selected.cities.has(d.key) ? 'active' : ''}" data-key="${d.key}">
+          ${titleCase(d.city)} <span style="color:var(--text-faint);font-size:10px">· ${d.state}</span>
+          <span class="count">${d.count}</span>
+        </span>
+      `;
+    }).join('') + (cities.length > capped.length
+      ? `<div class="empty-note" style="width:100%">+${cities.length - capped.length} cidades — refine sua busca</div>`
+      : '');
+
+    container.querySelectorAll('.chip').forEach(el => {
+      el.addEventListener('click', () => toggleCity(el.dataset.key));
+    });
+  }
+
+  // ----- UI: ribbon -----
+  function renderRibbon() {
+    const ribbon = document.getElementById('ribbon');
+    const parts = [];
+    selected.states.forEach(st => {
+      parts.push(`<span class="ribbon-chip"><span class="tag">Estado</span>${st} <span class="x" data-remove-state="${st}">×</span></span>`);
+    });
+    selected.cities.forEach(key => {
+      const [city, st] = key.split('|');
+      parts.push(`<span class="ribbon-chip"><span class="tag">Cidade</span>${titleCase(city)} · ${st} <span class="x" data-remove-city="${key}">×</span></span>`);
+    });
+    if (parts.length > 1) {
+      parts.push(`<span class="ribbon-chip" style="cursor:pointer" id="clear-all"><span class="tag">Limpar</span>tudo</span>`);
+    }
+    ribbon.innerHTML = parts.join('');
+    ribbon.querySelectorAll('[data-remove-state]').forEach(el => {
+      el.addEventListener('click', () => toggleState(el.dataset.removeState));
+    });
+    ribbon.querySelectorAll('[data-remove-city]').forEach(el => {
+      el.addEventListener('click', () => toggleCity(el.dataset.removeCity));
+    });
+    const clearAll = document.getElementById('clear-all');
+    if (clearAll) clearAll.addEventListener('click', () => {
+      selected.states.clear();
+      selected.cities.clear();
+      renderAll();
+    });
+  }
+
+  // ----- Actions -----
+  function toggleState(st) {
+    if (selected.states.has(st)) selected.states.delete(st);
+    else selected.states.add(st);
+    // Drop cities not in any active state
+    if (selected.states.size > 0) {
+      const toRemove = [];
+      selected.cities.forEach(key => {
+        const s = key.split('|')[1];
+        if (!selected.states.has(s)) toRemove.push(key);
+      });
+      toRemove.forEach(k => selected.cities.delete(k));
+    }
+    renderAll();
+    fitToFilter();
+  }
+
+  function toggleCity(key) {
+    if (selected.cities.has(key)) selected.cities.delete(key);
+    else selected.cities.add(key);
+    renderAll();
+    fitToFilter();
+  }
+
+  function fitToFilter() {
+    const people = getFilteredPeople();
+    if (people.length === 0) return;
+    if (selected.states.size === 0 && selected.cities.size === 0) {
+      map.flyTo([-15.5, -54.5], 4, { duration: 0.8 });
+      return;
+    }
+    const bounds = L.latLngBounds(people.map(p => [p.lat, p.lng]));
+    map.flyToBounds(bounds.pad(0.25), { duration: 0.8, maxZoom: 15 });
+  }
+
+  function renderAll() {
+    renderStateChips();
+    renderCityChips();
+    render();
+  }
+
+  // ----- Wire up controls -----
+  document.getElementById('city-search').addEventListener('input', renderCityChips);
+
+  document.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const a = btn.dataset.action;
+      if (a === 'all-state') { selected.states = new Set(allStates); }
+      else if (a === 'clear-state') { selected.states.clear(); selected.cities.clear(); }
+      else if (a === 'clear-city') { selected.cities.clear(); }
+      renderAll();
+      fitToFilter();
+    });
+  });
+
+  // Re-render when zoom changes so markers appear at deep zoom
+  map.on('zoomend', () => render());
+
+  // ----- Controls panel wiring -----
+  function wireToggle(id, key) {
+    const el = document.getElementById(id);
+    el.addEventListener('click', () => {
+      visibility[key] = !visibility[key];
+      el.classList.toggle('on', visibility[key]);
+      el.setAttribute('aria-checked', visibility[key]);
+      render();
+    });
+  }
+  wireToggle('toggle-heat', 'heat');
+  wireToggle('toggle-dots', 'dots');
+
+  function wireSlider(id, valId, key, transform = v => v) {
+    const el = document.getElementById(id);
+    const val = document.getElementById(valId);
+    el.addEventListener('input', () => {
+      const v = parseFloat(el.value);
+      heatOpts[key] = transform(v);
+      val.textContent = el.value;
+      render();
+    });
+  }
+  wireSlider('slider-radius', 'val-radius', 'radius');
+  wireSlider('slider-blur', 'val-blur', 'blur');
+  wireSlider('slider-intensity', 'val-intensity', 'intensity', v => v / 100);
+
+  // ----- Panel show/hide wiring -----
+  const app = document.querySelector('.app');
+
+  // First render
+  renderAll();
+  // Default: sidebar hidden on small screens
+  if (window.matchMedia('(max-width: 900px)').matches) {
+    app.classList.add('sidebar-hidden');
+  }
+
+  const hideSidebarBtn = document.getElementById('hide-sidebar');
+  const restoreSidebarBtn = document.getElementById('restore-sidebar');
+  function setSidebar(hidden) {
+    app.classList.toggle('sidebar-hidden', hidden);
+    restoreSidebarBtn.classList.toggle('visible', hidden);
+    // let leaflet recalc size after the CSS transition
+    setTimeout(() => map.invalidateSize(), 280);
+  }
+  hideSidebarBtn.addEventListener('click', () => setSidebar(true));
+  restoreSidebarBtn.addEventListener('click', () => setSidebar(false));
+  document.getElementById('sheet-backdrop').addEventListener('click', () => setSidebar(true));
+  document.getElementById('mobile-open-filters').addEventListener('click', () => setSidebar(false));
+
+  // Start with sidebar minimized
+  setSidebar(true);
+
+  document.querySelectorAll('.panel-close[data-hide]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const panel = document.getElementById(btn.dataset.hide);
+      const restore = document.getElementById(btn.dataset.restore);
+      panel.classList.add('hidden');
+      restore.classList.add('visible');
+    });
+  });
+  document.getElementById('restore-controls').addEventListener('click', (e) => {
+    document.getElementById('panel-controls').classList.remove('hidden');
+    e.currentTarget.classList.remove('visible');
+  });
+  document.getElementById('restore-top').addEventListener('click', (e) => {
+    document.getElementById('panel-top').classList.remove('hidden');
+    e.currentTarget.classList.remove('visible');
+  });
+
+  // Keep Leaflet in sync with viewport changes
+  let resizeTimer;
+  function scheduleInvalidate() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => map.invalidateSize(), 150);
+  }
+  window.addEventListener('resize', scheduleInvalidate);
+  window.addEventListener('orientationchange', () => setTimeout(() => map.invalidateSize(), 300));
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', scheduleInvalidate);
+  }
+})();
+</script>
+</body>
+</html>
