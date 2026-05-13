@@ -322,6 +322,8 @@
     font-weight: 500;
   }
   .chip.active .count { color: var(--accent); }
+  .chip.empty { opacity: 0.4; }
+  .chip.empty:hover { opacity: 0.6; }
 
   .empty-note {
     font-size: 12px;
@@ -1530,15 +1532,43 @@
     `).join('') || '<div class="empty-note">Sem dados para exibir</div>';
   }
 
+  // ----- Dynamic chip counts: respect filters in OTHER dimensions -----
+  // For each render pass, precompute counts per chip given the current selection.
+  // Each chip's count = people matching the current filter, IGNORING this chip's own dimension.
+  function computeChipCounts() {
+    const out = { company: {}, state: {}, city: {} };
+    const cs = selected.companies, ss = selected.states, ks = selected.cities;
+    for (const p of PEOPLE) {
+      const matchC = cs.size === 0 || cs.has(p.empresa);
+      const matchS = ss.size === 0 || ss.has(p.state);
+      const matchK = ks.size === 0 || ks.has(`${p.city}|${p.state}`);
+      // company chip count: ignore company filter, apply state+city
+      if (matchS && matchK && p.empresa) out.company[p.empresa] = (out.company[p.empresa]||0)+1;
+      // state chip count: ignore state filter, apply company+city
+      if (matchC && matchK) out.state[p.state] = (out.state[p.state]||0)+1;
+      // city chip count: ignore city filter, apply company+state
+      if (matchC && matchS) {
+        const k = `${p.city}|${p.state}`;
+        out.city[k] = (out.city[k]||0)+1;
+      }
+    }
+    return out;
+  }
+  let chipCounts = computeChipCounts();
+
   // ----- UI: company chips -----
   function renderCompanyChips() {
     const container = document.getElementById('company-chips');
-    container.innerHTML = allCompanies.map(c => `
-      <span class="chip ${selected.companies.has(c) ? 'active' : ''}" data-company="${c.replace(/"/g, '&quot;')}" title="${c}">
+    container.innerHTML = allCompanies.map(c => {
+      const n = chipCounts.company[c] || 0;
+      const empty = n === 0 ? 'empty' : '';
+      return `
+      <span class="chip ${selected.companies.has(c) ? 'active' : ''} ${empty}" data-company="${c.replace(/"/g, '&quot;')}" title="${c}">
         ${companyLabel(c)}
-        <span class="count">${companyTotals[c]}</span>
+        <span class="count">${n}</span>
       </span>
-    `).join('');
+    `;
+    }).join('');
     container.querySelectorAll('.chip').forEach(el => {
       el.addEventListener('click', () => toggleCompany(el.dataset.company));
     });
@@ -1547,12 +1577,16 @@
   // ----- UI: state chips -----
   function renderStateChips() {
     const container = document.getElementById('state-chips');
-    container.innerHTML = allStates.map(st => `
-      <span class="chip ${selected.states.has(st) ? 'active' : ''}" data-state="${st}" title="${STATE_NAMES[st]}">
+    container.innerHTML = allStates.map(st => {
+      const n = chipCounts.state[st] || 0;
+      const empty = n === 0 ? 'empty' : '';
+      return `
+      <span class="chip ${selected.states.has(st) ? 'active' : ''} ${empty}" data-state="${st}" title="${STATE_NAMES[st]}">
         ${st}
-        <span class="count">${stateTotals[st]}</span>
+        <span class="count">${n}</span>
       </span>
-    `).join('');
+    `;
+    }).join('');
     container.querySelectorAll('.chip').forEach(el => {
       el.addEventListener('click', () => toggleState(el.dataset.state));
     });
@@ -1565,10 +1599,10 @@
     const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const q = normalize(search);
 
-    // Build city list from cityTotals
-    let cities = Object.entries(cityTotals).map(([k, count]) => {
+    // Build city list from chipCounts (dynamic) and cityTotals (full universe for keys)
+    let cities = Object.keys(cityTotals).map(k => {
       const [city, state] = k.split('|');
-      return { city, state, count, key: k };
+      return { city, state, count: chipCounts.city[k] || 0, key: k };
     });
     if (selected.states.size > 0) cities = cities.filter(c => selected.states.has(c.state));
     if (q) cities = cities.filter(c => normalize(c.city).includes(q));
@@ -1579,7 +1613,7 @@
     selected.cities.forEach(key => {
       if (!cities.some(c => c.key === key)) {
         const [city, state] = key.split('|');
-        additional.push({ city, state, count: cityTotals[key] || 0, key });
+        additional.push({ city, state, count: chipCounts.city[key] || 0, key });
       }
     });
     cities = [...additional, ...cities];
@@ -1592,8 +1626,9 @@
     // Cap list size for perf
     const capped = cities.slice(0, 80);
     container.innerHTML = capped.map(d => {
+      const empty = d.count === 0 ? 'empty' : '';
       return `
-        <span class="chip ${selected.cities.has(d.key) ? 'active' : ''}" data-key="${d.key}">
+        <span class="chip ${selected.cities.has(d.key) ? 'active' : ''} ${empty}" data-key="${d.key}">
           ${titleCase(d.city)} <span style="color:var(--text-faint);font-size:10px">· ${d.state}</span>
           <span class="count">${d.count}</span>
         </span>
@@ -1687,6 +1722,7 @@
   }
 
   function renderAll() {
+    chipCounts = computeChipCounts();
     renderCompanyChips();
     renderStateChips();
     renderCityChips();
