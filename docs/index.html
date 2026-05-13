@@ -1202,6 +1202,17 @@
     <div class="filters">
       <div class="filter-section">
         <div class="filter-header">
+          <span class="filter-title">Empresa</span>
+          <div class="filter-actions">
+            <button data-action="all-company">Todas</button>
+            <button data-action="clear-company">Limpar</button>
+          </div>
+        </div>
+        <div class="chip-list" id="company-chips"></div>
+      </div>
+
+      <div class="filter-section">
+        <div class="filter-header">
           <span class="filter-title">Estado</span>
           <div class="filter-actions">
             <button data-action="all-state">Todos</button>
@@ -1298,13 +1309,35 @@
   const STATE_NAMES = window.STATE_NAMES;
 
   // ----- Aggregate people by (city|state) for counts -----
+  // Short display labels and company variant normalization. Two Alpe legal entities are merged into one bucket.
+  const COMPANY_NORMALIZE = {
+    'ALPE INTERMEDIACAO DE NEGOCIOS SA': 'Alpe',
+    'ALPE TECNOLOGIA EM INFORMATICA LTDA': 'Alpe',
+  };
+  const normCompany = (c) => COMPANY_NORMALIZE[c] || c;
+  const COMPANY_SHORT = {
+    'HINDIANA TEC E SERVICOS LTDA': 'Hindiana',
+    'YANDEH S.A': 'Yandeh',
+  };
+  function titleCaseLite(s) {
+    return s.toLowerCase().replace(/\b\w/g, m => m.toUpperCase());
+  }
+  const companyLabel = (c) => COMPANY_SHORT[c] || (c === 'Alpe' ? 'Alpe' : titleCaseLite(c));
+
   const cityTotals = {};      // "CITY|ST" -> count
   const stateTotals = {};
+  const companyTotals = {};   // "EMPRESA" -> count
   PEOPLE.forEach(p => {
+    // Merge company variants (e.g. both Alpe entities → 'Alpe')
+    p.empresa = normCompany(p.empresa);
     const key = `${p.city}|${p.state}`;
     cityTotals[key] = (cityTotals[key] || 0) + 1;
     stateTotals[p.state] = (stateTotals[p.state] || 0) + 1;
+    if (p.empresa) companyTotals[p.empresa] = (companyTotals[p.empresa] || 0) + 1;
   });
+
+  // Short display labels for long company names. Two Alpe legal entities are merged into one bucket.
+  // (Normalize map declared above for hoisting.)
 
   // Cluster people by identical lat/lng (same building/CEP)
   // so we can draw one marker per location sized by headcount
@@ -1317,11 +1350,13 @@
   const LOCS = Object.values(locTotals);
 
   const allStates = Object.keys(stateTotals).sort((a, b) => stateTotals[b] - stateTotals[a]);
+  const allCompanies = Object.keys(companyTotals).sort((a, b) => companyTotals[b] - companyTotals[a]);
 
   // ----- Filter state -----
   const selected = {
-    states: new Set(),   // empty = all
-    cities: new Set(),   // stored as "CITY|STATE"
+    states: new Set(),    // empty = all
+    cities: new Set(),    // stored as "CITY|STATE"
+    companies: new Set(), // empty = all
   };
 
   // Heat / dots options (user-adjustable)
@@ -1352,6 +1387,7 @@
 
   // ----- Render -----
   function matchFilter(p) {
+    if (selected.companies.size > 0 && !selected.companies.has(p.empresa)) return false;
     if (selected.states.size > 0 && !selected.states.has(p.state)) return false;
     if (selected.cities.size > 0 && !selected.cities.has(`${p.city}|${p.state}`)) return false;
     return true;
@@ -1494,6 +1530,20 @@
     `).join('') || '<div class="empty-note">Sem dados para exibir</div>';
   }
 
+  // ----- UI: company chips -----
+  function renderCompanyChips() {
+    const container = document.getElementById('company-chips');
+    container.innerHTML = allCompanies.map(c => `
+      <span class="chip ${selected.companies.has(c) ? 'active' : ''}" data-company="${c.replace(/"/g, '&quot;')}" title="${c}">
+        ${companyLabel(c)}
+        <span class="count">${companyTotals[c]}</span>
+      </span>
+    `).join('');
+    container.querySelectorAll('.chip').forEach(el => {
+      el.addEventListener('click', () => toggleCompany(el.dataset.company));
+    });
+  }
+
   // ----- UI: state chips -----
   function renderStateChips() {
     const container = document.getElementById('state-chips');
@@ -1561,6 +1611,10 @@
   function renderRibbon() {
     const ribbon = document.getElementById('ribbon');
     const parts = [];
+    selected.companies.forEach(c => {
+      const safe = c.replace(/"/g, '&quot;');
+      parts.push(`<span class="ribbon-chip"><span class="tag">Empresa</span>${companyLabel(c)} <span class="x" data-remove-company="${safe}">×</span></span>`);
+    });
     selected.states.forEach(st => {
       parts.push(`<span class="ribbon-chip"><span class="tag">Estado</span>${st} <span class="x" data-remove-state="${st}">×</span></span>`);
     });
@@ -1572,6 +1626,9 @@
       parts.push(`<span class="ribbon-chip" style="cursor:pointer" id="clear-all"><span class="tag">Limpar</span>tudo</span>`);
     }
     ribbon.innerHTML = parts.join('');
+    ribbon.querySelectorAll('[data-remove-company]').forEach(el => {
+      el.addEventListener('click', () => toggleCompany(el.dataset.removeCompany));
+    });
     ribbon.querySelectorAll('[data-remove-state]').forEach(el => {
       el.addEventListener('click', () => toggleState(el.dataset.removeState));
     });
@@ -1580,6 +1637,7 @@
     });
     const clearAll = document.getElementById('clear-all');
     if (clearAll) clearAll.addEventListener('click', () => {
+      selected.companies.clear();
       selected.states.clear();
       selected.cities.clear();
       renderAll();
@@ -1587,6 +1645,13 @@
   }
 
   // ----- Actions -----
+  function toggleCompany(c) {
+    if (selected.companies.has(c)) selected.companies.delete(c);
+    else selected.companies.add(c);
+    renderAll();
+    fitToFilter();
+  }
+
   function toggleState(st) {
     if (selected.states.has(st)) selected.states.delete(st);
     else selected.states.add(st);
@@ -1613,7 +1678,7 @@
   function fitToFilter() {
     const people = getFilteredPeople();
     if (people.length === 0) return;
-    if (selected.states.size === 0 && selected.cities.size === 0) {
+    if (selected.companies.size === 0 && selected.states.size === 0 && selected.cities.size === 0) {
       map.flyTo([-15.5, -54.5], 4, { duration: 0.8 });
       return;
     }
@@ -1622,6 +1687,7 @@
   }
 
   function renderAll() {
+    renderCompanyChips();
     renderStateChips();
     renderCityChips();
     render();
@@ -1636,6 +1702,8 @@
       if (a === 'all-state') { selected.states = new Set(allStates); }
       else if (a === 'clear-state') { selected.states.clear(); selected.cities.clear(); }
       else if (a === 'clear-city') { selected.cities.clear(); }
+      else if (a === 'all-company') { selected.companies = new Set(allCompanies); }
+      else if (a === 'clear-company') { selected.companies.clear(); }
       renderAll();
       fitToFilter();
     });
@@ -2335,9 +2403,9 @@
     const container = document.getElementById('office-result');
     let usedOsm = false;
 
-    // Rule: require at least one state or city filter before running
-    if (selected.states.size === 0 && selected.cities.size === 0) {
-      container.innerHTML = '<div style=\"font-size:12px;color:#c62828;background:#ffebee;padding:8px 10px;border-radius:6px;border:1px solid #ffcdd2\">\u26a0\ufe0f Selecione pelo menos uma <b>cidade</b> ou <b>estado</b> no painel de filtros antes de calcular.</div>';
+    // Rule: require at least one filter (company, state, or city) before running
+    if (selected.companies.size === 0 && selected.states.size === 0 && selected.cities.size === 0) {
+      container.innerHTML = '<div style=\"font-size:12px;color:#c62828;background:#ffebee;padding:8px 10px;border-radius:6px;border:1px solid #ffcdd2\">\u26a0\ufe0f Selecione pelo menos uma <b>empresa</b>, <b>estado</b> ou <b>cidade</b> no painel de filtros antes de calcular.</div>';
       return;
     }
     btn.disabled = true;
